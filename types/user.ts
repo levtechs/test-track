@@ -15,6 +15,11 @@ export interface UserProfile {
   skillStats: Record<string, SkillStat>;
   createdAt: number;
   updatedAt: number;
+  lastModule?: "english" | "math";
+  lastEnglishSessionId?: string;
+  lastEnglishIndex?: number;
+  lastMathSessionId?: string;
+  lastMathIndex?: number;
 }
 
 export interface QueuedQuestion {

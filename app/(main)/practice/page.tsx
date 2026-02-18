@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuestionCard, InfoButton } from "@/components/question/question-card";
@@ -23,7 +23,7 @@ type PracticeState =
 
 export default function PracticePage() {
   const { user, getIdToken, loading: authLoading } = useAuth();
-  const [state, setState] = useState<PracticeState>({ phase: "select" });
+  const [state, setState] = useState<PracticeState>({ phase: "loading", module: "english" });
   const [session, setSession] = useState<Session | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionClient | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -126,56 +126,127 @@ export default function PracticePage() {
     }
   }, [fetchQuestion]);
 
+  // Helper to get last session info from Firebase (for authenticated users) or localStorage (for guests)
+  const getLastSessionInfo = useCallback(async (module: Module, isGuest: boolean, userId?: string) => {
+    if (!isGuest && userId) {
+      const userRef = doc(db, "users", userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        const sessionId = module === "english" ? userData.lastEnglishSessionId : userData.lastMathSessionId;
+        const index = module === "english" ? userData.lastEnglishIndex : userData.lastMathIndex;
+        console.log("Firebase read - module:", module, "sessionId:", sessionId, "index:", index);
+        return { sessionId, index: index ?? 0 };
+      }
+    }
+    // Fall back to localStorage for guests
+    const sessionId = localStorage.getItem("sat_last_session_id");
+    const indexKey = `sat_last_index_${module}`;
+    const savedIndex = localStorage.getItem(indexKey);
+    return { sessionId, index: savedIndex ? parseInt(savedIndex, 10) : 0 };
+  }, []);
+
+  // Helper to get last module from Firebase (for authenticated users) or localStorage (for guests)
+  const getLastModule = useCallback(async (isGuest: boolean, userId?: string): Promise<Module | null> => {
+    if (!isGuest && userId) {
+      const userRef = doc(db, "users", userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        return userData.lastModule || null;
+      }
+    }
+    // Fall back to localStorage for guests
+    return localStorage.getItem("sat_last_module") as Module | null;
+  }, []);
+
+  // Helper to save last session info to Firebase (for authenticated users) or localStorage (for guests)
+  const saveLastSessionInfo = useCallback(async (module: Module, sessionId: string, index: number, isGuest: boolean, userId?: string) => {
+    if (!isGuest && userId) {
+      try {
+        const userRef = doc(db, "users", userId);
+        const updateData = module === "english" 
+          ? { lastModule: module, lastEnglishSessionId: sessionId, lastEnglishIndex: index }
+          : { lastModule: module, lastMathSessionId: sessionId, lastMathIndex: index };
+        await updateDoc(userRef, updateData);
+      } catch (err) {
+        console.error("Failed to save session info to Firebase:", err);
+      }
+    } else {
+      localStorage.setItem("sat_last_session_id", sessionId);
+      localStorage.setItem("sat_last_module", module);
+      localStorage.setItem(`sat_last_index_${module}`, index.toString());
+    }
+  }, []);
+
   // Handle session update from Firebase
-  const handleSessionUpdate = useCallback((sessionData: Session, isInitial = false) => {
+  const handleSessionUpdate = useCallback((sessionData: Session, isInitial = false, providedIndex?: number) => {
     setSession(sessionData);
 
     // On initial load, figure out which index to show
     if (isInitial && !hasInitializedRef.current) {
       hasInitializedRef.current = true;
       
-      const savedIndex = localStorage.getItem("sat_last_index");
-      let idx = savedIndex ? parseInt(savedIndex, 10) : 0;
+      let idx: number;
 
-      // If saved index is beyond bounds or already answered, find first unanswered
-      if (idx >= sessionData.bufferedQuestions.length || 
-          sessionData.bufferedQuestions[idx]?.answeredAt !== undefined) {
-        idx = sessionData.bufferedQuestions.findIndex((q) => q.answeredAt === undefined);
+      // If we have a saved index, use it (even if already answered - that's where user left off)
+      if (providedIndex !== undefined) {
+        idx = Math.min(providedIndex, sessionData.bufferedQuestions.length - 1);
+      } else {
+        // No saved index - find first unanswered
+        idx = sessionData.bufferedQuestions.findIndex((q: QueuedQuestion) => q.answeredAt === undefined);
         if (idx === -1) idx = sessionData.bufferedQuestions.length - 1;
       }
 
       setCurrentIndex(idx);
-      localStorage.setItem("sat_last_index", idx.toString());
       loadQuestionAtIndex(idx, sessionData.bufferedQuestions);
     }
   }, [loadQuestionAtIndex]);
 
-  // Resume session from localStorage
+  // Resume session (from Firebase for auth users, localStorage for guests)
   useEffect(() => {
-    const savedSessionId = localStorage.getItem("sat_last_session_id");
-    const savedModule = localStorage.getItem("sat_last_module") as Module | null;
+    // Wait for auth to finish loading before attempting to resume
+    if (authLoading) {
+      setState({ phase: "loading", module: "english" });
+      return;
+    }
 
-    if (!savedSessionId || !savedModule) return;
+    const resumeSession = async () => {
+      // Show loading while we try to resume
+      setState({ phase: "loading", module: "english" });
 
-    setState({ phase: "active", sessionId: savedSessionId, module: savedModule });
-
-    const sessionRef = doc(db, "sessions", savedSessionId);
-    const unsub = onSnapshot(sessionRef, (snap) => {
-      if (!snap.exists()) {
-        localStorage.removeItem("sat_last_session_id");
-        localStorage.removeItem("sat_last_module");
-        localStorage.removeItem("sat_last_index");
+      const isGuest = !user;
+      const savedModule = await getLastModule(isGuest, user?.uid);
+      if (!savedModule) {
         setState({ phase: "select" });
         return;
       }
 
-      const sessionData = snap.data() as Session;
-      handleSessionUpdate(sessionData, true);
-    });
+      const { sessionId: savedSessionId, index: savedIndex } = await getLastSessionInfo(savedModule, isGuest, user?.uid);
+      
+      if (!savedSessionId) {
+        setState({ phase: "select" });
+        return;
+      }
 
-    unsubscribeRef.current = unsub;
-    return () => unsub();
-  }, [handleSessionUpdate]);
+      setState({ phase: "active", sessionId: savedSessionId, module: savedModule });
+
+      const sessionRef = doc(db, "sessions", savedSessionId);
+      const unsub = onSnapshot(sessionRef, (snap) => {
+        if (!snap.exists()) {
+          setState({ phase: "select" });
+          return;
+        }
+
+        const sessionData = snap.data() as Session;
+        handleSessionUpdate(sessionData, true, savedIndex);
+      });
+
+      unsubscribeRef.current = unsub;
+    };
+
+    resumeSession();
+  }, [user, authLoading, getLastModule, getLastSessionInfo, handleSessionUpdate]);
 
   // Start new session
   const startSession = useCallback(async (module: Module) => {
@@ -183,7 +254,7 @@ export default function PracticePage() {
     questionCache.current.clear();
     hasInitializedRef.current = false;
     setCurrentIndex(0);
-    localStorage.removeItem("sat_last_index");
+    localStorage.removeItem(`sat_last_index_${module}`);
 
     try {
       const idToken = user ? await getIdToken() : undefined;
@@ -203,15 +274,20 @@ export default function PracticePage() {
       const data = await res.json();
       const { sessionId, bufferedQuestions } = data;
 
-      localStorage.setItem("sat_last_session_id", sessionId);
-      localStorage.setItem("sat_last_module", module);
-      localStorage.setItem("sat_last_index", "0");
+      // Find first unanswered question to start at
+      const firstUnansweredIdx = bufferedQuestions.findIndex((q: QueuedQuestion) => q.answeredAt === undefined);
+      const startIdx = firstUnansweredIdx === -1 ? 0 : firstUnansweredIdx;
+
+      // Save to Firebase (auth users) or localStorage (guests)
+      const isGuest = !user;
+      await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
 
       setState({ phase: "active", sessionId, module });
+      setCurrentIndex(startIdx);
 
-      // Load first question
+      // Load first unanswered question
       if (bufferedQuestions.length > 0) {
-        await loadQuestionAtIndex(0, bufferedQuestions);
+        await loadQuestionAtIndex(startIdx, bufferedQuestions);
       }
 
       // Set up Firebase listener
@@ -227,7 +303,7 @@ export default function PracticePage() {
       console.error("Error starting session:", err);
       setState({ phase: "select" });
     }
-  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex]);
+  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo]);
 
   // Submit answer
   const submitAnswer = useCallback(async (optionId: string) => {
@@ -309,13 +385,11 @@ export default function PracticePage() {
       setTimeout(() => {
         const nextIdx = currentIndex + 1;
         setCurrentIndex(nextIdx);
-        localStorage.setItem("sat_last_index", nextIdx.toString());
-        if (session) {
-          loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
-        }
+        saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
+        loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
       }, 500);
     }
-  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex]);
+  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo]);
 
   // Go to next unanswered
   const goToNextUnanswered = useCallback(() => {
@@ -334,12 +408,12 @@ export default function PracticePage() {
     if (currentIndex > 0) {
       const newIdx = currentIndex - 1;
       setCurrentIndex(newIdx);
-      localStorage.setItem("sat_last_index", newIdx.toString());
       if (session) {
+        saveLastSessionInfo(session.module, session.sessionId, newIdx, !user, user?.uid);
         loadQuestionAtIndex(newIdx, session.bufferedQuestions);
       }
     }
-  }, [currentIndex, session, loadQuestionAtIndex]);
+  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user]);
 
   // Go forward - can only go to first unanswered
   const goForward = useCallback(() => {
@@ -351,10 +425,10 @@ export default function PracticePage() {
     if (currentIndex < maxIndex) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
-      localStorage.setItem("sat_last_index", nextIdx.toString());
+      saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user]);
 
   // Cleanup
   useEffect(() => {

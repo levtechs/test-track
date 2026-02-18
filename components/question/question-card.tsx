@@ -34,13 +34,11 @@ export function QuestionCard({
   if (loading || !question) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex-none flex justify-center pb-2">
-          <Skeleton className="h-5 w-32" />
+        <div className="flex-1 space-y-4 overflow-hidden">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-20 w-full" />
         </div>
-        <div className="flex-1 space-y-4 overflow-hidden px-0">
-          <Skeleton className="h-full w-full" />
-        </div>
-        <div className="flex-none pt-2">
+        <div className="flex-none border-t pt-2">
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
@@ -54,7 +52,7 @@ export function QuestionCard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-2 overflow-y-auto pb-2">
+      <div className="flex-none max-h-[25%] overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />
@@ -65,7 +63,7 @@ export function QuestionCard({
         </div>
       </div>
 
-      <div className="flex-none border-t pt-2">
+      <div className="flex-1 border-t pt-2 overflow-y-auto">
         <AnswerOptions
           options={question.answer_options}
           selectedAnswer={selectedAnswer}
