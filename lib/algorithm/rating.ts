@@ -22,11 +22,13 @@ export function expected(ratingA: number, ratingB: number): number {
 export function updateUserRating(
   userRating: number,
   questionElo: number,
-  isCorrect: boolean
+  isCorrect: boolean,
+  totalAttempts: number = 0
 ): number {
+  const k = dynamicUserK(totalAttempts);
   const exp = expected(userRating, questionElo);
   const actual = isCorrect ? 1 : 0;
-  return Math.round(userRating + USER_K * (actual - exp));
+  return Math.round(userRating + k * (actual - exp));
 }
 
 export function updateQuestionElo(

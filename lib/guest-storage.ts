@@ -1,5 +1,10 @@
 import type { Module } from "@/types";
 import type { UserProfile, SkillElo, QuestionRepetition } from "@/types/user";
+import {
+  updateSkillElo as updateSharedSkillElo,
+  updateRepetition as updateSharedRepetition,
+  dynamicUserK,
+} from "@/lib/algorithm/rating";
 
 export interface GuestData {
   uid: string;
@@ -75,13 +80,15 @@ export function initGuestData(module: Module, uid: string): GuestData {
 export function updateGuestRating(
   module: Module,
   isCorrect: boolean,
-  data: GuestData
+  data: GuestData,
+  questionElo: number
 ): GuestData {
   const ratingField = module === "english" ? "englishRating" : "mathRating";
   const currentRating = data[ratingField];
+  const k = dynamicUserK(data.totalQuestions);
   
-  const exp = 1 / (1 + Math.pow(10, (1100 - currentRating) / 400));
-  const newRating = Math.round(currentRating + 32 * ((isCorrect ? 1 : 0) - exp));
+  const exp = 1 / (1 + Math.pow(10, (questionElo - currentRating) / 400));
+  const newRating = Math.round(currentRating + k * ((isCorrect ? 1 : 0) - exp));
   
   return {
     ...data,
@@ -97,21 +104,13 @@ export function updateGuestSkillElo(
   questionElo: number,
   data: GuestData
 ): GuestData {
-  const current = data.skillElos[skill];
-  const rating = current?.rating ?? 1100;
-  
-  const exp = 1 / (1 + Math.pow(10, (questionElo - rating) / 400));
-  const newRating = Math.round(rating + 20 * ((isCorrect ? 1 : 0) - exp));
+  const newSkillElo = updateSharedSkillElo(isCorrect, data.skillElos[skill], questionElo);
   
   return {
     ...data,
     skillElos: {
       ...data.skillElos,
-      [skill]: {
-        rating: newRating,
-        questionCount: (current?.questionCount ?? 0) + 1,
-        correctCount: (current?.correctCount ?? 0) + (isCorrect ? 1 : 0),
-      },
+      [skill]: newSkillElo,
     },
   };
 }
@@ -121,39 +120,7 @@ export function updateGuestRepetition(
   isCorrect: boolean,
   data: GuestData
 ): GuestData {
-  const current = data.questionRepetitions[questionId];
-  const now = Date.now();
-  
-  let newRep: QuestionRepetition;
-  
-  if (isCorrect) {
-    let newInterval: number;
-    const reps = current?.repetitions ?? 0;
-    
-    if (reps === 0) {
-      newInterval = 1;
-    } else if (reps === 1) {
-      newInterval = 3;
-    } else {
-      newInterval = Math.round((current?.interval ?? 1) * (current?.easeFactor ?? 2.5));
-    }
-    
-    newRep = {
-      easeFactor: Math.min(2.5, (current?.easeFactor ?? 2.5) + 0.1),
-      interval: newInterval,
-      repetitions: reps + 1,
-      lastReviewedAt: now,
-      nextReviewAt: now + newInterval * 24 * 60 * 60 * 1000,
-    };
-  } else {
-    newRep = {
-      easeFactor: Math.max(1.3, (current?.easeFactor ?? 2.5) - 0.2),
-      interval: 0,
-      repetitions: 0,
-      lastReviewedAt: now,
-      nextReviewAt: now,
-    };
-  }
+  const newRep = updateSharedRepetition(isCorrect, data.questionRepetitions[questionId]);
   
   return {
     ...data,

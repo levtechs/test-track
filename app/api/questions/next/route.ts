@@ -96,7 +96,8 @@ export async function POST(request: NextRequest) {
       const newUserRating = updateUserRating(
         session.currentRating,
         questionElo,
-        isCorrect
+        isCorrect,
+        session.questionCount
       );
 
       // Update session stats
