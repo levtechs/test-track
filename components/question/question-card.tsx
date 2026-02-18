@@ -52,7 +52,7 @@ export function QuestionCard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-none max-h-[25%] overflow-y-auto pb-2">
+      <div className="flex-1 max-h-[75%] overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />
@@ -63,7 +63,7 @@ export function QuestionCard({
         </div>
       </div>
 
-      <div className="flex-1 border-t pt-2 overflow-y-auto">
+      <div className="flex-1 max-h-[75%] border-t pt-2 overflow-y-auto">
         <AnswerOptions
           options={question.answer_options}
           selectedAnswer={selectedAnswer}
