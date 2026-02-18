@@ -1,0 +1,55 @@
+export interface SkillStat {
+  correct: number;
+  total: number;
+  lastSeen: number; // timestamp ms
+}
+
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  photoURL: string | null;
+  englishRating: number;
+  mathRating: number;
+  totalQuestions: number;
+  totalCorrect: number;
+  skillStats: Record<string, SkillStat>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface QueuedQuestion {
+  questionId: string;
+  answeredAt?: number;
+  selectedAnswer?: string;
+  isCorrect?: boolean;
+  correctAnswer?: string;
+  timeSpentMs?: number;
+  ratingChange?: number;
+}
+
+export interface Session {
+  sessionId: string;
+  userId: string;
+  module: "english" | "math";
+  startedAt: number;
+  lastActiveAt: number;
+  currentRating: number;
+  ratingAtStart: number;
+  questionCount: number;
+  correctCount: number;
+  streak: number;
+  bestStreak: number;
+  bufferedQuestions: QueuedQuestion[];
+  targetedSkills: string[];
+  difficultyBias: "E" | "M" | "H" | null;
+}
+
+export interface Response {
+  userId: string;
+  sessionId: string;
+  questionId: string;
+  selectedAnswer: string; // e.g. "A"
+  isCorrect: boolean;
+  timeSpentMs: number;
+  answeredAt: number;
+}
