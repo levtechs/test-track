@@ -4,6 +4,20 @@ export interface SkillStat {
   lastSeen: number; // timestamp ms
 }
 
+export interface SkillElo {
+  rating: number;
+  questionCount: number;
+  correctCount: number;
+}
+
+export interface QuestionRepetition {
+  easeFactor: number;
+  interval: number;
+  repetitions: number;
+  lastReviewedAt: number;
+  nextReviewAt: number;
+}
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -13,6 +27,8 @@ export interface UserProfile {
   totalQuestions: number;
   totalCorrect: number;
   skillStats: Record<string, SkillStat>;
+  skillElos?: Record<string, SkillElo>;
+  questionRepetitions?: Record<string, QuestionRepetition>;
   createdAt: number;
   updatedAt: number;
   lastModule?: "english" | "math";

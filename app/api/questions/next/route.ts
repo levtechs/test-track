@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule } from "@/lib/question-cache";
 import { recommendQuestions } from "@/lib/algorithm";
-import { updateUserRating, updateQuestionElo, ratingField } from "@/lib/rating";
+import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
-import type { Session, UserProfile, Response } from "@/types";
+import type { Session, UserProfile, Response, Module } from "@/types";
+import type { SkillElo, QuestionRepetition } from "@/types/user";
 import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
@@ -89,11 +90,12 @@ export async function POST(request: NextRequest) {
           : selectedAnswer;
 
       const isCorrect = selectedLetter === correctAnswer || selectedAnswer === correctAnswer;
+      const questionElo = questionData.elo || 1100;
 
-      // Calculate new rating
+      // Calculate new global rating
       const newUserRating = updateUserRating(
         session.currentRating,
-        questionData.elo || 1100,
+        questionElo,
         isCorrect
       );
 
@@ -116,27 +118,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Build wrong/correct sets from recent responses
-      const wrongQuestionIds = new Set<string>();
-      const correctQuestionIds = new Set<string>();
-
-      if (userProfile) {
-        const pastResponses = await adminDb
-          .collection("responses")
-          .where("userId", "==", session.userId)
-          .orderBy("answeredAt", "desc")
-          .limit(200)
-          .get();
-
-        pastResponses.docs.forEach((doc) => {
-          const r = doc.data();
-          if (r.isCorrect) {
-            correctQuestionIds.add(r.questionId);
-          } else {
-            wrongQuestionIds.add(r.questionId);
-          }
-        });
-      }
+      const skillElos: Record<string, SkillElo> = userProfile?.skillElos || {};
+      const questionRepetitions: Record<string, QuestionRepetition> = userProfile?.questionRepetitions || {};
 
       // Create updated session for recommendation
       const updatedSession: Session = {
@@ -173,15 +156,15 @@ export async function POST(request: NextRequest) {
             userRating: newUserRating,
             userProfile,
             session: updatedSession,
-            wrongQuestionIds,
-            correctQuestionIds,
+            skillElos,
+            questionRepetitions,
           },
           questionsToAdd
         );
 
         finalBuffer = [
           ...newBuffer,
-          ...nextQuestions.map((id) => ({ questionId: id })),
+          ...nextQuestions.map((id: string) => ({ questionId: id })),
         ];
       }
 
@@ -204,6 +187,8 @@ export async function POST(request: NextRequest) {
         streak: newStreak,
         bestStreak: newBestStreak,
         bufferedQuestions: finalBuffer,
+        questionSkill: questionData.skill,
+        questionElo,
       };
     });
 
@@ -254,22 +239,42 @@ export async function POST(request: NextRequest) {
         const userProfile = userDoc.data() as UserProfile;
         const questionData = questionSnap.docs[0]?.data();
         const skillKey = questionData?.skill || "unknown";
-        const skillPath = `skillStats.${skillKey}`;
+        const questionElo = questionData?.elo || 1100;
+
+        // Get current skill Elo and repetition
+        const currentSkillElo = userProfile.skillElos?.[skillKey];
+        const currentRepetition = userProfile.questionRepetitions?.[questionId];
+
+        // Update skill Elo
+        const newSkillElo = updateSkillElo(result.isCorrect, currentSkillElo, questionElo);
+
+        // Update question repetition (SM-2)
+        const newRepetition = updateRepetition(result.isCorrect, currentRepetition);
+
+        const updates: Record<string, unknown> = {
+          [ratingField(session.module)]: result.newRating,
+          totalQuestions: FieldValue.increment(1),
+          totalCorrect: FieldValue.increment(result.isCorrect ? 1 : 0),
+          updatedAt: Date.now(),
+        };
+
+        // Update skill stats (legacy)
         const currentSkill = userProfile.skillStats[skillKey] || {
           correct: 0,
           total: 0,
           lastSeen: 0,
         };
+        updates[`skillStats.${skillKey}.correct`] = currentSkill.correct + (result.isCorrect ? 1 : 0);
+        updates[`skillStats.${skillKey}.total`] = currentSkill.total + 1;
+        updates[`skillStats.${skillKey}.lastSeen`] = Date.now();
 
-        await adminDb.collection("users").doc(session.userId).update({
-          [ratingField(session.module)]: result.newRating,
-          totalQuestions: FieldValue.increment(1),
-          totalCorrect: FieldValue.increment(result.isCorrect ? 1 : 0),
-          [`${skillPath}.correct`]: currentSkill.correct + (result.isCorrect ? 1 : 0),
-          [`${skillPath}.total`]: currentSkill.total + 1,
-          [`${skillPath}.lastSeen`]: Date.now(),
-          updatedAt: Date.now(),
-        });
+        // Update skill Elo
+        updates[`skillElos.${skillKey}`] = newSkillElo;
+
+        // Update question repetition
+        updates[`questionRepetitions.${questionId}`] = newRepetition;
+
+        await adminDb.collection("users").doc(session.userId).update(updates);
       }
     }
 
