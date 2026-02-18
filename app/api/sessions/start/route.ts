@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule } from "@/lib/question-cache";
 import { recommendQuestions } from "@/lib/algorithm";
-import { ratingField } from "@/lib/rating";
+import { ratingField } from "@/lib/algorithm/rating";
 import { verifyAuth } from "@/lib/api-auth";
 import type { Session, Module } from "@/types";
+import type { SkillElo, QuestionRepetition } from "@/types/user";
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,11 +20,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate via Authorization header
-    const { userId, userProfile } = await verifyAuth(request);
+    const { userId, userProfile, isGuest } = await verifyAuth(request);
 
     const currentRating = userProfile
       ? userProfile[ratingField(module)]
       : 1000;
+
+    const skillElos: Record<string, SkillElo> = userProfile?.skillElos || {};
+    const questionRepetitions: Record<string, QuestionRepetition> = userProfile?.questionRepetitions || {};
 
     // Look for an existing session for this user + module
     const existingSnap = await adminDb
@@ -51,46 +55,19 @@ export async function POST(request: NextRequest) {
       if (existingSession.bufferedQuestions.length === 0) {
         const allQuestions = await getQuestionsByModule(module);
 
-        const wrongQuestionIds = new Set<string>();
-        const correctQuestionIds = new Set<string>();
-
-        if (userProfile) {
-          const responsesSnap = await adminDb
-            .collection("responses")
-            .where("userId", "==", userId)
-            .where("isCorrect", "==", false)
-            .orderBy("answeredAt", "desc")
-            .limit(200)
-            .get();
-          responsesSnap.docs.forEach((doc) => {
-            wrongQuestionIds.add(doc.data().questionId);
-          });
-
-          const correctSnap = await adminDb
-            .collection("responses")
-            .where("userId", "==", userId)
-            .where("isCorrect", "==", true)
-            .orderBy("answeredAt", "desc")
-            .limit(200)
-            .get();
-          correctSnap.docs.forEach((doc) => {
-            correctQuestionIds.add(doc.data().questionId);
-          });
-        }
-
         const recommendedIds = recommendQuestions(
           {
             candidates: allQuestions,
             userRating: currentRating,
             userProfile,
             session: { ...existingSession, currentRating },
-            wrongQuestionIds,
-            correctQuestionIds,
+            skillElos,
+            questionRepetitions,
           },
           3
         );
 
-        updates.bufferedQuestions = recommendedIds.map((id) => ({ questionId: id }));
+        updates.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
       }
 
       await existingDoc.ref.update(updates);
@@ -105,39 +82,7 @@ export async function POST(request: NextRequest) {
     }
 
     // No existing session — create a new one
-
-    // Fetch questions for this module
     const allQuestions = await getQuestionsByModule(module);
-
-    // Get user's past wrong/correct answers for recommendation
-    const wrongQuestionIds = new Set<string>();
-    const correctQuestionIds = new Set<string>();
-
-    if (userProfile) {
-      const responsesSnap = await adminDb
-        .collection("responses")
-        .where("userId", "==", userId)
-        .where("isCorrect", "==", false)
-        .orderBy("answeredAt", "desc")
-        .limit(200)
-        .get();
-
-      responsesSnap.docs.forEach((doc) => {
-        wrongQuestionIds.add(doc.data().questionId);
-      });
-
-      const correctSnap = await adminDb
-        .collection("responses")
-        .where("userId", "==", userId)
-        .where("isCorrect", "==", true)
-        .orderBy("answeredAt", "desc")
-        .limit(200)
-        .get();
-
-      correctSnap.docs.forEach((doc) => {
-        correctQuestionIds.add(doc.data().questionId);
-      });
-    }
 
     // Create session document
     const sessionRef = adminDb.collection("sessions").doc();
@@ -165,13 +110,13 @@ export async function POST(request: NextRequest) {
         userRating: currentRating,
         userProfile,
         session,
-        wrongQuestionIds,
-        correctQuestionIds,
+        skillElos,
+        questionRepetitions,
       },
       3
     );
 
-    session.bufferedQuestions = recommendedIds.map((id) => ({ questionId: id }));
+    session.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
 
     await sessionRef.set(session);
 

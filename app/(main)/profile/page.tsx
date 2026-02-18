@@ -6,14 +6,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import {
   BookOpen,
   Calculator,
   Target,
-  TrendingUp,
   LogIn,
   LogOut,
 } from "lucide-react";
+import type { SkillElo } from "@/types";
+import { getSkillsByModule } from "@/lib/skills";
+
+interface SkillData {
+  rating: number;
+  questionCount: number;
+  correctCount: number;
+}
 
 export default function ProfilePage() {
   const { user, userProfile, loading, signInWithGoogle, signOut } = useAuth();
@@ -74,12 +82,132 @@ export default function ProfilePage() {
     return diff > 0 ? `+${diff}` : `${diff}`;
   };
 
-  // Get top weak skills (lowest accuracy with enough attempts)
-  const skillEntries = Object.entries(userProfile.skillStats || {});
-  const weakSkills = skillEntries
-    .filter(([, s]) => s.total >= 3)
-    .sort((a, b) => a[1].correct / a[1].total - b[1].correct / b[1].total)
-    .slice(0, 5);
+  const getSkillData = (skillName: string): SkillData | null => {
+    const skillElos = userProfile.skillElos || {};
+    const skillStats = userProfile.skillStats || {};
+
+    if (skillElos[skillName]) {
+      return skillElos[skillName];
+    }
+
+    if (skillStats[skillName]) {
+      const stats = skillStats[skillName];
+      const acc = stats.total > 0 ? stats.correct / stats.total : 0.5;
+      return {
+        rating: Math.round(1000 + (acc - 0.5) * 400),
+        questionCount: stats.total,
+        correctCount: stats.correct,
+      };
+    }
+
+    return null;
+  };
+
+  const getEloColor = (rating: number) => {
+    if (rating >= 1200) return "text-green-600";
+    if (rating >= 900) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  const getEloBadge = (rating: number) => {
+    if (rating >= 1200) return "bg-green-500/10 text-green-600 border-green-500/20";
+    if (rating >= 900) return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
+    return "bg-red-500/10 text-red-600 border-red-500/20";
+  };
+
+  const calculateCategoryAverage = (skills: string[]): number | null => {
+    const ratings = skills
+      .map(skill => getSkillData(skill)?.rating)
+      .filter((r): r is number => r !== undefined);
+    
+    if (ratings.length === 0) return null;
+    return Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+  };
+
+  const renderModuleSkills = (module: "english" | "math", icon: React.ReactNode, title: string, colorClass: string) => {
+    const hierarchies = getSkillsByModule(module);
+    const moduleRating = module === "english" ? userProfile.englishRating : userProfile.mathRating;
+
+    const categoriesWithData = hierarchies
+      .map(group => ({
+        ...group,
+        skillsWithData: group.skills
+          .map(skill => ({ skill, data: getSkillData(skill) }))
+          .filter(s => s.data !== null),
+        averageRating: calculateCategoryAverage(group.skills),
+      }))
+      .filter(group => group.skillsWithData.length > 0);
+
+    if (categoriesWithData.length === 0) {
+      return (
+        <div className="py-6 text-center text-sm text-muted-foreground">
+          Practice {module} questions to see your skill breakdown
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 pb-2 border-b">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-md ${colorClass}`}>
+            {icon}
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold">{title}</h3>
+          </div>
+          <div className="text-right">
+            <span className="font-bold">{Math.round(moduleRating)}</span>
+            <span className={`ml-1 text-xs ${moduleRating >= 1000 ? 'text-green-600' : 'text-red-600'}`}>
+              {ratingChange(moduleRating)}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {categoriesWithData.map((group) => (
+            <div key={group.category} className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-muted-foreground">{group.category}</span>
+                <span className={`text-xs font-medium ${getEloColor(group.averageRating || 1000)}`}>
+                  avg {group.averageRating}
+                </span>
+              </div>
+              
+              <div className="space-y-2 pl-3 border-l-2 border-muted">
+                {group.skillsWithData.map(({ skill, data }) => {
+                  const progress = Math.min(100, Math.max(0, ((data!.rating - 600) / 800) * 100));
+                  
+                  return (
+                    <div key={skill} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{skill}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono font-medium ${getEloColor(data!.rating)}`}>
+                            {data!.rating}
+                          </span>
+                          {data!.questionCount > 0 && (
+                            <Badge className={`text-xs ${getEloBadge(data!.rating)}`}>
+                              {Math.round((data!.correctCount / data!.questionCount) * 100)}%
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Progress value={progress} className="h-1 flex-1" />
+                        <span className="text-xs text-muted-foreground w-10 text-right">
+                          {data!.questionCount}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto max-w-lg px-4 py-6">
@@ -139,7 +267,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Overall stats */}
-      <Card className="mb-4">
+      <Card className="mb-6">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <Target className="h-4 w-4" />
@@ -168,47 +296,15 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Weak areas */}
-      {weakSkills.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              <TrendingUp className="h-4 w-4" />
-              Areas to Improve
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {weakSkills.map(([skill, stats]) => {
-                const pct = Math.round((stats.correct / stats.total) * 100);
-                return (
-                  <div key={skill}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm">{skill}</span>
-                      <Badge
-                        variant={pct < 50 ? "destructive" : "secondary"}
-                        className="text-xs"
-                      >
-                        {pct}%
-                      </Badge>
-                    </div>
-                    <div className="h-1.5 w-full rounded-full bg-muted">
-                      <div
-                        className="h-1.5 rounded-full bg-primary transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Skill breakdown */}
+      <div className="space-y-6">
+        {renderModuleSkills("english", <BookOpen className="h-4 w-4" />, "English", "bg-blue-500/10 text-blue-600")}
+        {renderModuleSkills("math", <Calculator className="h-4 w-4" />, "Math", "bg-emerald-500/10 text-emerald-600")}
+      </div>
 
-      <Separator className="my-4" />
+      <Separator className="my-6" />
       <p className="text-center text-xs text-muted-foreground">
-        Keep practicing to see more detailed stats
+        Keep practicing to improve your skills and ratings
       </p>
     </div>
   );

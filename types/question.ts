@@ -11,6 +11,8 @@ export interface Question {
   difficulty: "E" | "M" | "H";
   domain: string;
   skill: string;
+  skillCategory?: string;
+  skillSubcategory?: string;
   question_text: string; // HTML
   stimulus: string | null; // HTML
   answer_options: AnswerOption[]; // Empty for FIB questions
@@ -38,6 +40,8 @@ export interface QuestionClient {
   difficulty: "E" | "M" | "H";
   domain: string;
   skill: string;
+  skillCategory?: string;
+  skillSubcategory?: string;
   question_text: string;
   stimulus: string | null;
   answer_options: AnswerOption[]; // Empty for FIB questions
