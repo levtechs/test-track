@@ -52,28 +52,30 @@ export function QuestionCard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 max-h-[75%] overflow-y-auto pb-2">
+      <div className="overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />
           </div>
         )}
-        <div className="text-sm leading-relaxed">
+        <div className="mt-2 text-sm leading-relaxed">
           <HtmlContent html={question.question_text} />
         </div>
       </div>
 
-      <div className="flex-1 max-h-[75%] border-t pt-2 overflow-y-auto">
-        <AnswerOptions
-          options={question.answer_options}
-          selectedAnswer={selectedAnswer}
-          correctAnswer={correctAnswer}
-          disabled={disabled}
-          onSelect={onSelectAnswer}
-          questionType={question.question_type}
-        />
+      <div className="flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
+        <div className="overflow-y-auto">
+          <AnswerOptions
+            options={question.answer_options}
+            selectedAnswer={selectedAnswer}
+            correctAnswer={correctAnswer}
+            disabled={disabled}
+            onSelect={onSelectAnswer}
+            questionType={question.question_type}
+          />
+        </div>
+        </div>
       </div>
-    </div>
   );
 }
 
