@@ -2,6 +2,8 @@
 
 A mobile-first SAT practice application with adaptive question difficulty, progress tracking, and session persistence.
 
+### Try it out here: [sat.coilearn.com](https://sat.coilearn.com)
+
 ## Features
 
 - **Adaptive Practice**: Questions recommended based on your skill level using Elo rating system
