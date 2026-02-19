@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule } from "@/lib/question-cache";
 import { recommendQuestions } from "@/lib/algorithm";
+import { checkAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
 import type { Session, UserProfile, Response, Module } from "@/types";
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
           ? String.fromCharCode(65 + answerIndex)
           : selectedAnswer;
 
-      const isCorrect = selectedLetter === correctAnswer || selectedAnswer === correctAnswer;
+      const isCorrect = checkAnswerCorrect(selectedAnswer, correctAnswer);
       const questionElo = questionData.elo || 1100;
 
       // Calculate new global rating

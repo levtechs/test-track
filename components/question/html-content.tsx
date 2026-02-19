@@ -45,6 +45,7 @@ function mathMLToLatex(ml: Element): string {
         "=": "=", "(": "(", ")": ")", "[": "[", "]": "]",
         "<": "<", ">": ">", "≤": "\\leq", "≥": "\\geq",
         "≠": "\\neq", "±": "\\pm", "⋅": "\\cdot",
+        "%": "\\%",
       };
       return opMap[text] || text;
     }
@@ -83,7 +84,8 @@ export function HtmlContent({ html, className = "" }: HtmlContentProps) {
               .replace(/left parenthesis/g, "(")
               .replace(/right parenthesis/g, ")")
               .replace(/left bracket/g, "[")
-              .replace(/right bracket/g, "]");
+              .replace(/right bracket/g, "]")
+              .replace(/%/g, "\\%");
           }
         }
 
@@ -103,11 +105,19 @@ export function HtmlContent({ html, className = "" }: HtmlContentProps) {
     });
 
     const sanitized = DOMPurify.sanitize(doc.body.innerHTML, {
-      ADD_TAGS: ["math", "mi", "mo", "mn", "ms", "mrow", "msup", "msub", "mfrac", "mover", "munder", "mtext", "msqrt", "mroot", "mpadded", "mspace", "mfenced", "mtd", "mtr", "mlabeledtr"],
-      ADD_ATTR: ["xmlns", "alttext", "accent", "accentunder", "fence", "separator", "stretchy", "lspace", "rspace", "columnalign", "rowalign", "colspan", "rowspan", "open", "close", "sep"],
+      ADD_TAGS: ["math", "mi", "mo", "mn", "ms", "mrow", "msup", "msub", "mfrac", "mover", "munder", "mtext", "msqrt", "mroot", "mpadded", "mspace", "mfenced", "mtd", "mtr", "mlabeledtr", "svg", "figure", "g", "path", "defs", "clipPath", "use", "rect", "text", "span", "p", "ul", "li", "br", "img"],
+      ADD_ATTR: ["xmlns", "alttext", "accent", "accentunder", "fence", "separator", "stretchy", "lspace", "rspace", "columnalign", "rowalign", "colspan", "rowspan", "open", "close", "sep", "viewBox", "width", "height", "role", "aria-label", "id", "class", "d", "fill", "stroke", "stroke-width", "clip-path", "transform", "x", "y", "xlink:href", "href", "style", "align"],
     });
 
     ref.current.innerHTML = sanitized;
+
+    // Add dark mode fix for SVGs
+    if (typeof window !== 'undefined' && document.documentElement.classList.contains('dark')) {
+      const svgs = ref.current.querySelectorAll('svg');
+      svgs.forEach(svg => {
+        svg.style.filter = 'invert(1) hue-rotate(180deg)';
+      });
+    }
   }, [html]);
 
   return (

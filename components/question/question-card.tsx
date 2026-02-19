@@ -1,6 +1,5 @@
 "use client";
 
-
 import { Skeleton } from "@/components/ui/skeleton";
 import { HtmlContent } from "./html-content";
 import { AnswerOptions } from "./answer-options";
@@ -58,14 +57,31 @@ export function QuestionCard({
             <HtmlContent html={cleanHtml(question.stimulus)} />
           </div>
         )}
+        {question.images && question.images.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {question.images
+              .filter(img => img && !img.includes('favicon'))
+              .map((img, idx) => (
+                <img
+                  key={idx}
+                  src={img.startsWith("http") ? img : `https://sat-7f48c.firebaseapp.com/${img}`}
+                  alt={`Question image ${idx + 1}`}
+                  className="max-w-full h-auto rounded-lg border"
+                />
+              ))}
+          </div>
+        )}
         <div className="mt-2 text-sm leading-relaxed">
-          <HtmlContent html={question.question_text} />
+          <div className="bg-white text-black p-3 rounded-lg" style={{ filter: 'invert(1) hue-rotate(180deg)' }}>
+            <HtmlContent html={question.question_text} />
+          </div>
         </div>
       </div>
 
       <div className="flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
         <div className="overflow-y-auto">
           <AnswerOptions
+            key={question.question_id}
             options={question.answer_options}
             selectedAnswer={selectedAnswer}
             correctAnswer={correctAnswer}
@@ -74,8 +90,8 @@ export function QuestionCard({
             questionType={question.question_type}
           />
         </div>
-        </div>
       </div>
+    </div>
   );
 }
 

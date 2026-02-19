@@ -11,6 +11,7 @@ import { RationaleView } from "@/components/question/rationale-view";
 import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Module, QuestionClient, Session } from "@/types";
 import type { QueuedQuestion } from "@/types";
+import { checkAnswerCorrect } from "@/lib/utils";
 
 type PracticeState =
   | { phase: "select" }
@@ -82,6 +83,7 @@ export default function PracticePage() {
         rationale: data.rationale || "",
         question_type: data.question_type || "mcq",
         elo: data.elo || 1100,
+        images: data.images || [],
       };
 
       questionCache.current.set(questionId, question);
@@ -320,9 +322,9 @@ export default function PracticePage() {
     let correctAnswerDisplay: string;
 
     if (isFIB) {
-      const userAnswer = optionId.toLowerCase().trim();
-      const correctAnswer = currentQuestion.correct_answer[0].toLowerCase().trim();
-      isCorrect = userAnswer === correctAnswer;
+      const userAnswer = optionId.trim();
+      const correctAnswer = currentQuestion.correct_answer[0];
+      isCorrect = checkAnswerCorrect(userAnswer, correctAnswer);
       correctAnswerDisplay = currentQuestion.correct_answer[0];
     } else {
       const selectedIndex = currentQuestion.answer_options.findIndex((opt) => opt.id === optionId);

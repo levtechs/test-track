@@ -49,6 +49,7 @@ export interface QuestionClient {
   rationale: string;
   question_type: QuestionType;
   elo: number;
+  images: string[];
 }
 
 export type Module = "english" | "math";

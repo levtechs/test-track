@@ -16,3 +16,25 @@ export function cleanHtml(html: string): string {
   
   return cleaned.trim();
 }
+
+export function normalizeMathAnswer(answer: string): string {
+  const trimmed = answer.toLowerCase().trim();
+  
+  const fractionMatch = trimmed.match(/^(\d+)\/(\d+)$/);
+  if (fractionMatch) {
+    const numerator = parseFloat(fractionMatch[1]);
+    const denominator = parseFloat(fractionMatch[2]);
+    if (denominator !== 0) {
+      return (numerator / denominator).toString();
+    }
+  }
+  
+  return trimmed;
+}
+
+export function checkAnswerCorrect(userAnswer: string, correctAnswer: string): boolean {
+  const normalizedUser = normalizeMathAnswer(userAnswer);
+  const normalizedCorrect = normalizeMathAnswer(correctAnswer);
+  
+  return normalizedUser === normalizedCorrect;
+}

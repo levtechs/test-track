@@ -177,6 +177,12 @@
 .question-content p:last-child {
   margin-bottom: 0;
 }
+
+/* Force light mode for diagrams/figures */
+.question-content figure,
+.question-content svg {
+  color-scheme: light;
+}
 .question-content strong,
 .question-content b {
   font-weight: 600;

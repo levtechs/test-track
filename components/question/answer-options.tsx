@@ -68,7 +68,7 @@ export function AnswerOptions({
             <Button
               onClick={handleSubmit}
               disabled={disabled || !inputValue.trim()}
-              className="px-4"
+              className="px-4 h-10"
               size="sm"
             >
               Submit
