@@ -102,12 +102,6 @@ export default function ProfilePage() {
         )
       : 0;
 
-  const ratingChange = (rating: number) => {
-    const diff = rating - 1000;
-    if (diff === 0) return "";
-    return diff > 0 ? `+${diff}` : `${diff}`;
-  };
-
   const getSkillData = (skillName: string): SkillData | null => {
     const skillElos = userProfile.skillElos || {};
     const skillStats = userProfile.skillStats || {};
@@ -183,9 +177,6 @@ export default function ProfilePage() {
           </div>
           <div className="text-right">
             <span className="font-bold">{Math.round(moduleRating)}</span>
-            <span className={`ml-1 text-xs ${moduleRating >= 1000 ? 'text-green-600' : 'text-red-600'}`}>
-              {ratingChange(moduleRating)}
-            </span>
           </div>
         </div>
 
@@ -266,12 +257,9 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold">
+            <div className="text-3xl font-bold">
               {Math.round(userProfile.englishRating)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {ratingChange(userProfile.englishRating) || "Starting rating"}
-            </p>
           </CardContent>
         </Card>
         <Card>
@@ -282,12 +270,9 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <div className="text-2xl font-bold">
+            <div className="text-3xl font-bold">
               {Math.round(userProfile.mathRating)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {ratingChange(userProfile.mathRating) || "Starting rating"}
-            </p>
           </CardContent>
         </Card>
       </div>
