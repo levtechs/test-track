@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
           ? String.fromCharCode(65 + answerIndex)
           : selectedAnswer;
 
-      const isCorrect = checkAnswerCorrect(selectedAnswer, correctAnswer);
+      const isCorrect = checkAnswerCorrect(selectedLetter, correctAnswer);
       const questionElo = questionData.elo || 1100;
 
       // Calculate new global rating

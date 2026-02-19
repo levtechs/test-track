@@ -34,7 +34,9 @@ export function AnswerOptions({
 
   // FIB (Fill-in-the-blank) rendering
   if (isFIB) {
-    const displayValue = hasSubmitted ? correctAnswer || "" : (selectedAnswer ?? inputValue);
+    const displayValue = hasSubmitted 
+      ? (selectedAnswer ?? correctAnswer ?? "") 
+      : (selectedAnswer ?? inputValue);
     
     const handleSubmit = () => {
       if (inputValue.trim() && !disabled) {
