@@ -112,7 +112,7 @@ export function HtmlContent({ html, className = "" }: HtmlContentProps) {
     ref.current.innerHTML = sanitized;
 
     // Add dark mode fix for SVGs
-    if (typeof window !== 'undefined' && document.documentElement.classList.contains('dark')) {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       const svgs = ref.current.querySelectorAll('svg');
       svgs.forEach(svg => {
         svg.style.filter = 'invert(1) hue-rotate(180deg)';

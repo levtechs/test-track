@@ -75,7 +75,7 @@ export function QuestionCard({
           <div 
             className="bg-white text-black p-3 rounded-lg"
             style={{ 
-              filter: typeof window !== 'undefined' && document.documentElement.classList.contains('dark') 
+              filter: typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
                 ? 'invert(1) hue-rotate(180deg)' 
                 : 'none' 
             }}
