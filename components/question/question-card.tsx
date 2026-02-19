@@ -72,7 +72,14 @@ export function QuestionCard({
           </div>
         )}
         <div className="mt-2 text-sm leading-relaxed">
-          <div className="bg-white text-black p-3 rounded-lg" style={{ filter: 'invert(1) hue-rotate(180deg)' }}>
+          <div 
+            className="bg-white text-black p-3 rounded-lg"
+            style={{ 
+              filter: typeof window !== 'undefined' && document.documentElement.classList.contains('dark') 
+                ? 'invert(1) hue-rotate(180deg)' 
+                : 'none' 
+            }}
+          >
             <HtmlContent html={question.question_text} />
           </div>
         </div>
