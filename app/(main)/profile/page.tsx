@@ -13,9 +13,11 @@ import {
   Target,
   LogIn,
   LogOut,
+  TrendingUp,
 } from "lucide-react";
-import type { SkillElo } from "@/types";
+import type { SkillElo, EstimatedScore } from "@/types";
 import { getSkillsByModule } from "@/lib/skills";
+import { useState, useEffect } from "react";
 
 interface SkillData {
   rating: number;
@@ -24,7 +26,31 @@ interface SkillData {
 }
 
 export default function ProfilePage() {
-  const { user, userProfile, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, userProfile, loading, signInWithGoogle, signOut, getIdToken } = useAuth();
+  const [calculating, setCalculating] = useState(false);
+
+  useEffect(() => {
+    if (!user || !userProfile) return;
+
+    const calculateEstimate = async () => {
+      setCalculating(true);
+      try {
+        const token = await getIdToken();
+        if (!token) return;
+
+        await fetch("/api/profile/estimate-score", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (error) {
+        console.error("Failed to calculate estimate:", error);
+      } finally {
+        setCalculating(false);
+      }
+    };
+
+    calculateEstimate();
+  }, [user, userProfile?.totalQuestions]);
 
   if (loading) {
     return (
@@ -231,7 +257,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Rating cards */}
-      <div className="mb-4 grid grid-cols-2 gap-3">
+      <div className="mb-4 grid grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2 pt-4 px-4">
             <div className="flex items-center gap-2">
@@ -267,7 +293,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Overall stats */}
-      <Card className="mb-6">
+      <Card className="mb-4">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <Target className="h-4 w-4" />
@@ -293,6 +319,58 @@ export default function ProfilePage() {
               <div className="text-xs text-muted-foreground">Accuracy</div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Estimated SAT Score */}
+      <Card className="mb-6">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <TrendingUp className="h-4 w-4" />
+            Estimated SAT Score
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {calculating ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : userProfile.estimatedEnglish && userProfile.estimatedMath ? (
+            <div className="space-y-3">
+              <div className="text-center">
+                <div className="text-4xl font-bold">
+                  {userProfile.estimatedEnglish.score + userProfile.estimatedMath.score}
+                </div>
+                <div className="text-xs text-muted-foreground">Total Score</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <BookOpen className="h-3 w-3 text-blue-500" />
+                    <span className="text-sm font-medium">English</span>
+                  </div>
+                  <div className="text-xl font-bold">{userProfile.estimatedEnglish.score}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {Math.round(userProfile.estimatedEnglish.confidence * 100)}% confidence
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <Calculator className="h-3 w-3 text-emerald-500" />
+                    <span className="text-sm font-medium">Math</span>
+                  </div>
+                  <div className="text-xl font-bold">{userProfile.estimatedMath.score}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {Math.round(userProfile.estimatedMath.confidence * 100)}% confidence
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              Start practicing to see your estimated score
+            </div>
+          )}
         </CardContent>
       </Card>
 

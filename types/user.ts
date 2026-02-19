@@ -18,6 +18,13 @@ export interface QuestionRepetition {
   nextReviewAt: number;
 }
 
+export interface EstimatedScore {
+  score: number;
+  confidence: number;
+  rawAccuracy: number;
+  calculatedAt: number;
+}
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -36,6 +43,8 @@ export interface UserProfile {
   lastEnglishIndex?: number;
   lastMathSessionId?: string;
   lastMathIndex?: number;
+  estimatedEnglish?: EstimatedScore;
+  estimatedMath?: EstimatedScore;
 }
 
 export interface QueuedQuestion {
