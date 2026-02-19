@@ -65,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             skillStats: {},
             createdAt: Date.now(),
             updatedAt: Date.now(),
+            dayStreak: 0,
+            lastActiveDate: null,
           };
           await setDoc(userRef, newProfile);
           setUserProfile(newProfile);

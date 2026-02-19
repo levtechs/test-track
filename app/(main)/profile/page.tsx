@@ -14,6 +14,7 @@ import {
   LogIn,
   LogOut,
   TrendingUp,
+  Flame,
 } from "lucide-react";
 import type { SkillElo, EstimatedScore } from "@/types";
 import { getSkillsByModule } from "@/lib/skills";
@@ -38,9 +39,13 @@ export default function ProfilePage() {
         const token = await getIdToken();
         if (!token) return;
 
-        await fetch("/api/profile/estimate-score", {
+        await fetch("/api/profile/update", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ clientDate: new Date().toISOString() }),
         });
       } catch (error) {
         console.error("Failed to calculate estimate:", error);
@@ -286,7 +291,15 @@ export default function ProfilePage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <div>
+              <div className="text-2xl font-bold">
+                {userProfile.dayStreak}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <Flame className="h-3 w-3" /> Streak
+              </div>
+            </div>
             <div>
               <div className="text-2xl font-bold">
                 {userProfile.totalQuestions}
@@ -313,6 +326,7 @@ export default function ProfilePage() {
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <TrendingUp className="h-4 w-4" />
             Estimated SAT Score
+            <p className="text-xs text-muted-foreground">beta</p>
           </CardTitle>
         </CardHeader>
         <CardContent>

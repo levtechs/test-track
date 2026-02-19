@@ -160,5 +160,7 @@ export function migrateToFirestore(
     questionRepetitions: guestData.questionRepetitions,
     createdAt: guestData.createdAt,
     updatedAt: Date.now(),
+    dayStreak: 0,
+    lastActiveDate: null,
   };
 }

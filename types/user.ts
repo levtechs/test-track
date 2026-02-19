@@ -45,6 +45,8 @@ export interface UserProfile {
   lastMathIndex?: number;
   estimatedEnglish?: EstimatedScore;
   estimatedMath?: EstimatedScore;
+  dayStreak: number;
+  lastActiveDate: number | null;
 }
 
 export interface QueuedQuestion {
