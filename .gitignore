@@ -49,7 +49,7 @@ next-env.d.ts
 .Python
 
 # Project specific
-/scripts/migrate-stats.ts
+/scripts/
 /sat_questions/
 /test_output/
 /sat_questions_backup/
