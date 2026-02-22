@@ -5,6 +5,7 @@ import { recommendQuestions } from "@/lib/algorithm";
 import { checkAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
+import { incrementResponse } from "@/lib/stats";
 import type { Session, UserProfile, Response, Module } from "@/types";
 import type { SkillElo, QuestionRepetition } from "@/types/user";
 import { FieldValue } from "firebase-admin/firestore";
@@ -230,6 +231,7 @@ export async function POST(request: NextRequest) {
     };
 
     await adminDb.collection("responses").add(response);
+    incrementResponse(result.isCorrect, response.userId).catch(console.error);
 
     // Update user profile stats if authenticated
     const sessionSnap = await sessionRef.get();

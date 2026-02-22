@@ -4,13 +4,14 @@ import { getQuestionsByModule } from "@/lib/question-cache";
 import { recommendQuestions } from "@/lib/algorithm";
 import { ratingField } from "@/lib/algorithm/rating";
 import { verifyAuth } from "@/lib/api-auth";
+import { incrementSession } from "@/lib/stats";
 import type { Session, Module } from "@/types";
-import type { SkillElo, QuestionRepetition } from "@/types/user";
+import type { SkillElo, QuestionRepetition, SessionMode } from "@/types/user";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { module } = body as { module: Module };
+    const { module, mode = "sandbox" } = body as { module: Module; mode?: SessionMode };
 
     if (!module || !["english", "math"].includes(module)) {
       return NextResponse.json(
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
       sessionId: sessionRef.id,
       userId,
       module,
+      mode,
       startedAt: Date.now(),
       lastActiveAt: Date.now(),
       currentRating,
@@ -119,6 +121,7 @@ export async function POST(request: NextRequest) {
     session.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
 
     await sessionRef.set(session);
+    incrementSession(module, mode).catch(console.error);
 
     return NextResponse.json({
       sessionId: session.sessionId,
