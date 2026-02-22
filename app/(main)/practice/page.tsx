@@ -8,23 +8,25 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuestionCard, InfoButton } from "@/components/question/question-card";
 import { RationaleView } from "@/components/question/rationale-view";
-import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, RotateCcw, Calendar } from "lucide-react";
 import type { Module, QuestionClient, Session } from "@/types";
 import type { QueuedQuestion } from "@/types";
+import type { SessionMode } from "@/types/user";
 import { checkAnswerCorrect } from "@/lib/utils";
 
 type PracticeState =
   | { phase: "select" }
-  | { phase: "loading"; module: Module }
+  | { phase: "loading"; module: Module; mode: SessionMode }
   | {
       phase: "active";
       sessionId: string;
       module: Module;
+      mode: SessionMode;
     };
 
 export default function PracticePage() {
   const { user, getIdToken, loading: authLoading } = useAuth();
-  const [state, setState] = useState<PracticeState>({ phase: "loading", module: "english" });
+  const [state, setState] = useState<PracticeState>({ phase: "select" });
   const [session, setSession] = useState<Session | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionClient | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -32,6 +34,30 @@ export default function PracticePage() {
   const [questionStartTime, setQuestionStartTime] = useState<number>(0);
   const [showRationale, setShowRationale] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [speedRoundComplete, setSpeedRoundComplete] = useState(false);
+
+  // Timer countdown for speed round
+  useEffect(() => {
+    if (state.phase !== "active") return;
+    const mode = (state as { mode: SessionMode }).mode;
+    if (mode !== "speed_round" || timeRemaining === null || speedRoundComplete) return;
+    if (timeRemaining <= 0) {
+      setSpeedRoundComplete(true);
+      return;
+    }
+    const timer = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev === null || prev <= 0) {
+          clearInterval(timer);
+          setSpeedRoundComplete(true);
+          return 0;
+        }
+        return prev - 1000;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [state, timeRemaining, speedRoundComplete]);
 
   // Use ref for cache - instant access, no re-renders
   const questionCache = useRef<Map<string, QuestionClient>>(new Map());
@@ -209,13 +235,13 @@ export default function PracticePage() {
   useEffect(() => {
     // Wait for auth to finish loading before attempting to resume
     if (authLoading) {
-      setState({ phase: "loading", module: "english" });
+      setState({ phase: "loading", module: "english", mode: "sandbox" });
       return;
     }
 
     const resumeSession = async () => {
       // Show loading while we try to resume
-      setState({ phase: "loading", module: "english" });
+      setState({ phase: "loading", module: "english", mode: "sandbox" });
 
       const isGuest = !user;
       const savedModule = await getLastModule(isGuest, user?.uid);
@@ -231,7 +257,7 @@ export default function PracticePage() {
         return;
       }
 
-      setState({ phase: "active", sessionId: savedSessionId, module: savedModule });
+      setState({ phase: "active", sessionId: savedSessionId, module: savedModule, mode: "sandbox" });
 
       const sessionRef = doc(db, "sessions", savedSessionId);
       const unsub = onSnapshot(sessionRef, (snap) => {
@@ -251,11 +277,13 @@ export default function PracticePage() {
   }, [user, authLoading, getLastModule, getLastSessionInfo, handleSessionUpdate]);
 
   // Start new session
-  const startSession = useCallback(async (module: Module) => {
-    setState({ phase: "loading", module });
+  const startSession = useCallback(async (module: Module, mode: SessionMode = "sandbox", timeLimitMs?: number) => {
+    setState({ phase: "loading", module, mode });
     questionCache.current.clear();
     hasInitializedRef.current = false;
     setCurrentIndex(0);
+    setSpeedRoundComplete(false);
+    setTimeRemaining(timeLimitMs ?? null);
     localStorage.removeItem(`sat_last_index_${module}`);
 
     try {
@@ -268,7 +296,7 @@ export default function PracticePage() {
       const res = await fetch("/api/sessions/start", {
         method: "POST",
         headers,
-        body: JSON.stringify({ module }),
+        body: JSON.stringify({ module, mode, timeLimitMs }),
       });
 
       if (!res.ok) throw new Error("Failed to start session");
@@ -280,11 +308,13 @@ export default function PracticePage() {
       const firstUnansweredIdx = bufferedQuestions.findIndex((q: QueuedQuestion) => q.answeredAt === undefined);
       const startIdx = firstUnansweredIdx === -1 ? 0 : firstUnansweredIdx;
 
-      // Save to Firebase (auth users) or localStorage (guests)
-      const isGuest = !user;
-      await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
+      // Save to Firebase (auth users) or localStorage (guests), but not for speed_round
+      if (mode !== "speed_round") {
+        const isGuest = !user;
+        await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
+      }
 
-      setState({ phase: "active", sessionId, module });
+      setState({ phase: "active", sessionId, module, mode });
       setCurrentIndex(startIdx);
 
       // Load first unanswered question
@@ -466,48 +496,79 @@ export default function PracticePage() {
   })() : false;
 
   if (state.phase === "select") {
+    const modules: { module: Module; label: string; description: string; icon: typeof BookOpen; color: string }[] = [
+      { module: "english", label: "English", description: "Reading & Writing", icon: BookOpen, color: "bg-blue-500/10 text-blue-500" },
+      { module: "math", label: "Math", description: "Problem Solving & Data", icon: Calculator, color: "bg-emerald-500/10 text-emerald-500" },
+    ];
+
+    const modes: { mode: SessionMode; label: string; description: string; icon: typeof Zap; needsTimeSelect?: boolean }[] = [
+      { mode: "sandbox", label: "Practice", description: "Learn at your own pace", icon: BookOpen },
+      { mode: "speed_round", label: "Speed Round", description: "Timed challenge", icon: Zap, needsTimeSelect: true },
+      { mode: "review", label: "Review", description: "Review due questions", icon: RotateCcw },
+      { mode: "daily", label: "Daily Challenge", description: "Same for everyone", icon: Calendar },
+    ];
+
     return (
-      <div className="flex flex-col items-center justify-center px-4 pt-12">
-        <h1 className="mb-2 text-2xl font-bold">Practice</h1>
-        <p className="mb-8 text-sm text-muted-foreground">
-          Choose a module to start practicing
-        </p>
-        <div className="grid w-full max-w-sm gap-4">
-          <Card
-            className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${
-              authLoading ? "opacity-50 pointer-events-none" : "active:scale-[0.98]"
-            }`}
-            onClick={() => !authLoading && startSession("english")}
-          >
-            <CardHeader className="flex flex-row items-center gap-4 pb-2">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
-                <BookOpen className="h-6 w-6" />
+      <div className="flex flex-col px-4 pt-8 pb-24">
+        <h1 className="mb-6 text-2xl font-bold text-center">Practice</h1>
+        
+        <div className="space-y-8 w-full max-w-md mx-auto overflow-y-auto">
+          {modules.map(({ module, label, description, icon: ModuleIcon, color }) => (
+            <div key={module}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>
+                  <ModuleIcon className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 className="font-semibold">{label}</h2>
+                  <p className="text-xs text-muted-foreground">{description}</p>
+                </div>
               </div>
-              <div>
-                <CardTitle className="text-lg">English</CardTitle>
-                <p className="text-sm text-muted-foreground">Reading & Writing</p>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {modes.map(({ mode, label: modeLabel, description: modeDescription, icon: ModeIcon, needsTimeSelect }) => (
+                  <Card
+                    key={`${module}-${mode}`}
+                    className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.98] ${needsTimeSelect ? "relative" : ""}`}
+                    onClick={() => startSession(module, mode, needsTimeSelect ? 3 * 60 * 1000 : undefined)}
+                  >
+                    <CardHeader className="flex flex-col items-center gap-2 py-4 pb-8">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <ModeIcon className="h-6 w-6" />
+                      </div>
+                      <div className="text-center">
+                        <CardTitle className="text-sm">{modeLabel}</CardTitle>
+                        <p className="text-xs text-muted-foreground">{modeDescription}</p>
+                      </div>
+                      {needsTimeSelect && (
+                        <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-2" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs px-3"
+                            onClick={() => startSession(module, mode, 1 * 60 * 1000)}
+                          >
+                            1 min
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs px-3"
+                            onClick={() => startSession(module, mode, 3 * 60 * 1000)}
+                          >
+                            3 min
+                          </Button>
+                        </div>
+                      )}
+                    </CardHeader>
+                  </Card>
+                ))}
               </div>
-            </CardHeader>
-          </Card>
-          <Card
-            className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md ${
-              authLoading ? "opacity-50 pointer-events-none" : "active:scale-[0.98]"
-            }`}
-            onClick={() => !authLoading && startSession("math")}
-          >
-            <CardHeader className="flex flex-row items-center gap-4 pb-2">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
-                <Calculator className="h-6 w-6" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Math</CardTitle>
-                <p className="text-sm text-muted-foreground">Problem Solving & Data</p>
-              </div>
-            </CardHeader>
-          </Card>
+            </div>
+          ))}
         </div>
+
         {!user && (
-          <p className="mt-6 text-center text-xs text-muted-foreground max-w-xs">
+          <p className="mt-6 text-center text-xs text-muted-foreground">
             Sign in to save your progress and compete with others
           </p>
         )}
@@ -521,7 +582,7 @@ export default function PracticePage() {
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           <p className="text-sm text-muted-foreground">
-            Loading {state.module} practice...
+            Loading {state.mode} {state.module} practice...
           </p>
         </div>
       </div>
@@ -565,6 +626,24 @@ export default function PracticePage() {
           </div>
 
           <div className="flex items-center gap-4">
+            {state.mode === "review" || state.mode === "daily" ? (
+              <span className="text-muted-foreground text-sm">
+                <span className="font-semibold text-foreground">
+                  {currentIndex + 1}
+                </span>
+                {" / "}
+                <span className="font-semibold text-foreground">
+                  {session.bufferedQuestions.length}
+                </span>
+              </span>
+            ) : null}
+
+            {state.mode === "speed_round" && timeRemaining !== null && !speedRoundComplete && (
+              <span className={`font-mono font-semibold ${timeRemaining < 60000 ? "text-red-500" : ""}`}>
+                {Math.floor(timeRemaining / 60000)}:{(Math.floor(timeRemaining / 1000) % 60).toString().padStart(2, "0")}
+              </span>
+            )}
+
             {(() => {
               const accuracy = session.questionCount > 0
                 ? Math.round((session.correctCount / session.questionCount) * 100)
@@ -619,14 +698,47 @@ export default function PracticePage() {
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden pt-2">
-        <QuestionCard
-          question={currentQuestion}
-          selectedAnswer={selectedAnswer}
-          correctAnswer={answerResult?.correctAnswer || null}
-          disabled={!!answerResult}
-          onSelectAnswer={submitAnswer}
-          loading={false}
-        />
+        {speedRoundComplete && session ? (
+          <div className="flex flex-col items-center justify-center h-full gap-6">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold mb-2">Time&apos;s Up!</h2>
+              <p className="text-muted-foreground">Here&apos;s how you did</p>
+            </div>
+            <div className="grid grid-cols-3 gap-8 text-center">
+              <div>
+                <div className="text-3xl font-bold">{session.questionCount}</div>
+                <div className="text-xs text-muted-foreground">Questions</div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-green-500">{session.correctCount}</div>
+                <div className="text-xs text-muted-foreground">Correct</div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold">
+                  {session.questionCount > 0 ? Math.round((session.correctCount / session.questionCount) * 100) : 0}%
+                </div>
+                <div className="text-xs text-muted-foreground">Accuracy</div>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={handleGoBack}>
+                Back to Practice
+              </Button>
+              <Button variant="outline" onClick={() => startSession(state.module, "speed_round", 3 * 60 * 1000)}>
+                Try Again
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <QuestionCard
+            question={currentQuestion}
+            selectedAnswer={selectedAnswer}
+            correctAnswer={answerResult?.correctAnswer || null}
+            disabled={!!answerResult}
+            onSelectAnswer={submitAnswer}
+            loading={false}
+          />
+        )}
       </div>
 
       {currentQuestion && showRationale && (

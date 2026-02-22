@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule } from "@/lib/question-cache";
-import { recommendQuestions } from "@/lib/algorithm";
+import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
 import { checkAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
-import type { Session, UserProfile, Response, Module } from "@/types";
+import type { Session, UserProfile, Response } from "@/types";
 import type { SkillElo, QuestionRepetition } from "@/types/user";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -145,24 +145,40 @@ export async function POST(request: NextRequest) {
         ratingChange: newUserRating - session.currentRating,
       };
 
-      // Ensure buffer has enough unanswered questions (at least 3)
+      // Ensure buffer has enough unanswered questions
       const unansweredCount = newBuffer.filter((q) => q.answeredAt === undefined).length;
       let finalBuffer = newBuffer;
 
       if (unansweredCount < 3) {
         const questionsToAdd = 3 - unansweredCount;
         
-        const nextQuestions = recommendQuestions(
-          {
-            candidates: allQuestions,
-            userRating: newUserRating,
-            userProfile,
-            session: updatedSession,
-            skillElos,
-            questionRepetitions,
-          },
-          questionsToAdd
-        );
+        let nextQuestions: string[];
+        const mode = (session as Session).mode || "sandbox";
+
+        if (mode === "review") {
+          nextQuestions = recommendReviewQuestions(
+            { candidates: allQuestions, module: session.module, questionRepetitions, session: updatedSession },
+            questionsToAdd
+          );
+        } else if (mode === "daily") {
+          nextQuestions = recommendDailyChallenge(
+            { candidates: allQuestions, module: session.module, dateSeed: (session as Session).dateSeed || "", userId: session.userId },
+            questionsToAdd
+          );
+        } else {
+          // sandbox and speed_round use the adaptive algorithm
+          nextQuestions = recommendQuestions(
+            {
+              candidates: allQuestions,
+              userRating: newUserRating,
+              userProfile,
+              session: updatedSession,
+              skillElos,
+              questionRepetitions,
+            },
+            questionsToAdd
+          );
+        }
 
         finalBuffer = [
           ...newBuffer,
