@@ -276,6 +276,39 @@ export const FRESHNESS_STALE_THRESHOLD = 5;
 export const DIFF_SCORE_MAX_DIFF = 500;
 
 // =============================================================================
+// REVIEW MODE SCORING
+// =============================================================================
+
+/**
+ * Score for questions user got wrong (repetitions reset to 0).
+ * Highest priority for review mode.
+ */
+export const REVIEW_SCORE_WRONG = 1.0;
+
+/**
+ * Score for questions due for review (nextReviewAt <= now).
+ * Second highest priority.
+ */
+export const REVIEW_SCORE_DUE = 0.9;
+
+/**
+ * Score for questions never seen by the user.
+ * Lowest priority - only shown if no questions need review.
+ */
+export const REVIEW_SCORE_NEW = 0;
+
+/**
+ * Number of days into the future to consider questions "upcoming".
+ * Questions due within this window get REVIEW_SCORE_UPCOMING.
+ */
+export const REVIEW_UPCOMING_DAYS = 7;
+
+/**
+ * Score for questions due soon (within REVIEW_UPCOMING_DAYS).
+ */
+export const REVIEW_SCORE_UPCOMING = 0.5;
+
+// =============================================================================
 // CALIBRATION PHASE
 // =============================================================================
 

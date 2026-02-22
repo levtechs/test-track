@@ -5,13 +5,12 @@ import {
   W_DIFFICULTY,
   W_FRESHNESS,
   W_EXPLORE,
-  CALIBRATION_SEQUENCE,
   DEFAULT_TARGET_SUCCESS_RATE,
-  TARGET_SUCCESS_STREAK_5,
   TARGET_SUCCESS_STREAK_3,
-  TARGET_SUCCESS_STRUGGLING,
-  STREAK_THRESHOLD_CHALLENGE,
+  TARGET_SUCCESS_STREAK_5,
   STREAK_THRESHOLD_MODERATE,
+  STREAK_THRESHOLD_CHALLENGE,
+  TARGET_SUCCESS_STRUGGLING,
   STRUGGLING_ACCURACY_THRESHOLD,
   DUE_SCORE_NEW,
   DUE_SCORE_OVERDUE,
@@ -24,7 +23,13 @@ import {
   FRESHNESS_SCORE_OLD,
   FRESHNESS_STALE_THRESHOLD,
   DIFF_SCORE_MAX_DIFF,
+  REVIEW_SCORE_WRONG,
+  REVIEW_SCORE_DUE,
+  REVIEW_SCORE_NEW,
+  REVIEW_SCORE_UPCOMING,
+  REVIEW_UPCOMING_DAYS,
   TOP_CANDIDATES_COUNT,
+  CALIBRATION_SEQUENCE,
 } from "./constants";
 
 export interface RecommendationInput {
@@ -247,4 +252,104 @@ export function recommendQuestions(
   }
 
   return results;
+}
+
+export interface ReviewInput {
+  candidates: Question[];
+  module: "english" | "math";
+  questionRepetitions: Record<string, QuestionRepetition>;
+  session: Session;
+  count?: number;
+}
+
+export function recommendReviewQuestions(input: ReviewInput, count: number = 10): string[] {
+  const { candidates, module, questionRepetitions, session } = input;
+  const now = Date.now();
+
+  const excludeSet = new Set(
+    session.bufferedQuestions.map((q) => q.questionId)
+  );
+
+  const moduleQuestions = candidates.filter(
+    (q) => q.module === module && !excludeSet.has(q.question_id)
+  );
+
+  if (moduleQuestions.length === 0) {
+    return [];
+  }
+
+  const scored: ScoredQuestion[] = moduleQuestions.map((q) => {
+    const rep = questionRepetitions[q.question_id];
+    let score = 0;
+
+    if (!rep) {
+      // Never seen - lowest priority for review mode
+      score = REVIEW_SCORE_NEW;
+    } else if (rep.repetitions === 0) {
+      // Got wrong (repetitions reset to 0) - highest priority
+      score = REVIEW_SCORE_WRONG;
+    } else if (rep.nextReviewAt <= now) {
+      // Due for review after correct answer
+      score = REVIEW_SCORE_DUE;
+    } else {
+      const upcomingMs = REVIEW_UPCOMING_DAYS * 24 * 60 * 60 * 1000;
+      const timeUntilDue = rep.nextReviewAt - now;
+      if (timeUntilDue <= upcomingMs) {
+        score = REVIEW_SCORE_UPCOMING;
+      } else {
+        score = 0;
+      }
+    }
+
+    return { questionId: q.question_id, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, count).map((s) => s.questionId);
+}
+
+export interface DailyInput {
+  candidates: Question[];
+  module: "english" | "math";
+  dateSeed: string;
+  userId: string;
+  count?: number;
+}
+
+export function recommendDailyChallenge(input: DailyInput, count: number = 10): string[] {
+  const { candidates, module, dateSeed, userId } = input;
+
+  const moduleQuestions = candidates.filter((q) => q.module === module);
+
+  if (moduleQuestions.length === 0) {
+    return [];
+  }
+
+  const hash = simpleHash(`${dateSeed}-${module}-${userId}`);
+  const seededRandom = createSeededRandom(hash);
+
+  const shuffled = [...moduleQuestions];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(seededRandom() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  return shuffled.slice(0, count).map((q) => q.question_id);
+}
+
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+function createSeededRandom(seed: number): () => number {
+  return function () {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
 }

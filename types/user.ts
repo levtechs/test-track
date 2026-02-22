@@ -59,10 +59,13 @@ export interface QueuedQuestion {
   ratingChange?: number;
 }
 
+export type SessionMode = "sandbox" | "speed_round" | "review" | "daily";
+
 export interface Session {
   sessionId: string;
   userId: string;
   module: "english" | "math";
+  mode: SessionMode;
   startedAt: number;
   lastActiveAt: number;
   currentRating: number;
@@ -74,6 +77,9 @@ export interface Session {
   bufferedQuestions: QueuedQuestion[];
   targetedSkills: string[];
   difficultyBias: "E" | "M" | "H" | null;
+  timeLimitMs?: number;
+  dateSeed?: string;
+  expiresAt?: number;
 }
 
 export interface Response {
