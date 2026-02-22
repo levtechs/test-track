@@ -9,7 +9,7 @@ export default function MainLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const allowScroll = pathname === "/profile";
+  const allowScroll = pathname === "/profile" || pathname === "/practice";
 
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-background">
