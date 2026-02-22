@@ -194,7 +194,6 @@ export async function POST(request: NextRequest) {
       review: undefined,
       daily: undefined,
     };
-    };
 
     const effectiveTimeLimit = timeLimitMs ?? defaultTimeLimits[mode];
 
