@@ -190,9 +190,10 @@ export async function POST(request: NextRequest) {
     // Mode-specific configuration
     const defaultTimeLimits: Record<SessionMode, number | undefined> = {
       sandbox: undefined,
-      speed_round: 2 * 60 * 1000, // 2 minutes default
+      speed_round: 3 * 60 * 1000, // 3 minutes default, matching frontend
       review: undefined,
       daily: undefined,
+    };
     };
 
     const effectiveTimeLimit = timeLimitMs ?? defaultTimeLimits[mode];
