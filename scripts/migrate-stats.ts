@@ -1,28 +1,29 @@
 import 'dotenv/config';
 import { adminDb } from "../lib/firebase-admin";
 
+const GLOBAL_STATS_DOC = "stats/global";
+const DAILY_STATS_COLLECTION = "dailyStats";
+
+interface DailyStats {
+  responseCount: number;
+  correctCount: number;
+  activeUsers: string[];
+}
+
 async function migrateStats() {
   console.log("Starting stats migration...");
 
   const now = Date.now();
-  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
 
   console.log("Fetching data from Firestore...");
 
-  const [
-    usersSnap,
-    sessionsSnap,
-    responsesSnap,
-    allUsers,
-    allSessions,
-    recentResponses,
-  ] = await Promise.all([
+  const [usersSnap, sessionsSnap, responsesSnap, allUsers, allSessions, allResponses] = await Promise.all([
     adminDb.collection("users").count().get(),
     adminDb.collection("sessions").count().get(),
     adminDb.collection("responses").count().get(),
     adminDb.collection("users").get(),
     adminDb.collection("sessions").get(),
-    adminDb.collection("responses").where("answeredAt", ">=", thirtyDaysAgo).get(),
+    adminDb.collection("responses").get(),
   ]);
 
   console.log(`Found ${usersSnap.data().count} users`);
@@ -37,11 +38,8 @@ async function migrateStats() {
   let sessionsEnglish = 0;
   let sessionsMath = 0;
   const sessionsByMode: Record<string, number> = {};
-  const dailyResponses: Record<string, number> = {};
-  const dailyActiveUsers: Record<string, Set<string>> = {};
 
   console.log("Processing responses for correct count...");
-  const allResponses = await adminDb.collection("responses").get();
   for (const doc of allResponses.docs) {
     const data = doc.data();
     if (data.isCorrect) correctCount++;
@@ -70,25 +68,24 @@ async function migrateStats() {
     sessionsByMode[mode] = (sessionsByMode[mode] || 0) + 1;
   }
 
-  console.log("Processing recent responses for daily stats...");
-  for (const doc of recentResponses.docs) {
+  console.log("Processing responses for daily stats...");
+  const dailyStatsMap: Record<string, DailyStats> = {};
+
+  for (const doc of allResponses.docs) {
     const data = doc.data();
     const date = new Date(data.answeredAt).toISOString().split("T")[0];
     
-    dailyResponses[date] = (dailyResponses[date] || 0) + 1;
-
-    if (!dailyActiveUsers[date]) {
-      dailyActiveUsers[date] = new Set();
+    if (!dailyStatsMap[date]) {
+      dailyStatsMap[date] = { responseCount: 0, correctCount: 0, activeUsers: [] };
     }
-    dailyActiveUsers[date].add(data.userId);
+    dailyStatsMap[date].responseCount++;
+    if (data.isCorrect) dailyStatsMap[date].correctCount++;
+    if (!dailyStatsMap[date].activeUsers.includes(data.userId)) {
+      dailyStatsMap[date].activeUsers.push(data.userId);
+    }
   }
 
-  const dailyActiveUsersConverted: Record<string, string[]> = {};
-  for (const [date, users] of Object.entries(dailyActiveUsers)) {
-    dailyActiveUsersConverted[date] = Array.from(users);
-  }
-
-  const stats = {
+  const globalStats = {
     totalUsers: usersSnap.data().count,
     totalResponses: responsesSnap.data().count,
     correctCount,
@@ -100,16 +97,20 @@ async function migrateStats() {
       math: mathRatingCount > 0 ? totalMathRating / mathRatingCount : 1000,
     },
     ratingsCount: { english: englishRatingCount, math: mathRatingCount },
-    dailyResponses,
-    dailyActiveUsers: dailyActiveUsersConverted,
     lastUpdated: now,
   };
 
-  console.log("Writing stats to Firestore...");
-  await adminDb.doc("stats/global").set(stats);
+  console.log("Writing global stats to Firestore...");
+  await adminDb.doc(GLOBAL_STATS_DOC).set(globalStats);
+
+  console.log(`Writing ${Object.keys(dailyStatsMap).length} daily stats documents...`);
+  for (const [date, stats] of Object.entries(dailyStatsMap)) {
+    await adminDb.collection(DAILY_STATS_COLLECTION).doc(date).set(stats);
+  }
 
   console.log("Migration complete!");
-  console.log("Stats:", JSON.stringify(stats, null, 2));
+  console.log("Global Stats:", JSON.stringify(globalStats, null, 2));
+  console.log("Daily Stats Dates:", Object.keys(dailyStatsMap).sort());
 }
 
 migrateStats().catch(console.error);

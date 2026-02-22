@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { getStats } from "@/lib/stats";
+import { getGlobalStats, getResponsesLast7Days, getActiveUsersLast7Days } from "@/lib/stats";
 
 interface AdminStats {
   totalUsers: number;
@@ -23,7 +23,7 @@ interface AdminStats {
 }
 
 async function getAdminStats(): Promise<AdminStats> {
-  const stats = await getStats();
+  const stats = await getGlobalStats();
   
   if (!stats) {
     return {
@@ -41,7 +41,9 @@ async function getAdminStats(): Promise<AdminStats> {
     };
   }
 
-  const now = Date.now();
+  const responsesLast7Days = await getResponsesLast7Days();
+  const activeUsersLast7Days = await getActiveUsersLast7Days();
+
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayStr = todayStart.toISOString().split("T")[0];
@@ -49,50 +51,35 @@ async function getAdminStats(): Promise<AdminStats> {
   const weekAgo = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
   const weekAgoStr = weekAgo.toISOString().split("T")[0];
 
-  const responsesLast7Days: { date: string; count: number }[] = [];
-  const newUsersLast7Days: { date: string; count: number }[] = [];
-
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(todayStart.getTime() - i * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
-    responsesLast7Days.push({ 
-      date, 
-      count: stats.dailyResponses[date] || 0 
-    });
-    newUsersLast7Days.push({
-      date,
-      count: stats.dailyActiveUsers[date]?.length || 0,
-    });
-  }
-
-  const activeUsersToday = stats.dailyActiveUsers[todayStr]?.length || 0;
+  const activeUsersToday = activeUsersLast7Days.find((d: { date: string; count: number }) => d.date === todayStr)?.count || 0;
   
   let activeUsersThisWeek = 0;
   const weekUserIds = new Set<string>();
-  for (const [date, users] of Object.entries(stats.dailyActiveUsers)) {
-    if (date >= weekAgoStr) {
-      users.forEach(id => weekUserIds.add(id));
+  for (const day of activeUsersLast7Days) {
+    if (day.date >= weekAgoStr) {
+      weekUserIds.add(day.date);
     }
   }
   activeUsersThisWeek = weekUserIds.size;
 
-  const averageAccuracy = stats.totalResponses > 0 
-    ? (stats.correctCount / stats.totalResponses) * 100 
+  const totalResponses = stats.totalResponses || 0;
+  const correctCount = stats.correctCount || 0;
+  const averageAccuracy = totalResponses > 0 
+    ? (correctCount / totalResponses) * 100 
     : 0;
 
   return {
-    totalUsers: stats.totalUsers,
-    totalSessions: stats.totalSessions,
-    totalResponses: stats.totalResponses,
+    totalUsers: stats.totalUsers || 0,
+    totalSessions: stats.totalSessions || 0,
+    totalResponses,
     activeUsersToday,
     activeUsersThisWeek,
     averageAccuracy,
-    averageRating: stats.averageRating,
-    sessionsByModule: stats.sessionsByModule,
-    sessionsByMode: stats.sessionsByMode,
+    averageRating: stats.averageRating || { english: 1000, math: 1000 },
+    sessionsByModule: stats.sessionsByModule || { english: 0, math: 0 },
+    sessionsByMode: stats.sessionsByMode || {},
     responsesLast7Days,
-    newUsersLast7Days,
+    newUsersLast7Days: activeUsersLast7Days,
   };
 }
 
