@@ -1,45 +1,24 @@
-# SAT Practice App
+# SAT Practice
 
-A mobile-first SAT practice application with adaptive question difficulty, progress tracking, and session persistence.
+Official source code for SAT practice app
 
-### Try it out here: [sat.coilearn.com](https://sat.coilearn.com)
+[Try it out here](https://sat.coilearn.com)
 
 ## Features
 
-- **Adaptive Practice**: Questions recommended based on your skill level using Elo rating system
-- **Session Persistence**: Your progress is saved automatically - resume anytime
-- **Progress Tracking**: Track accuracy, streak, and rating over time
-- **Detailed Analytics**: View skill breakdown, difficulty, and question metadata
-- **Guest Mode**: Practice without signing in, your progress is saved locally
+- Adaptive practice with Elo-based recommendations
+- Session persistence - resume anytime
+- Progress tracking with detailed analytics
+- Guest mode - practice without signing in
 
-## Tech Stack
+## Purpose
 
-- **Frontend**: Next.js 14, React, TypeScript, Tailwind CSS
-- **Backend**: Firebase Firestore, Firebase Auth
-- **State Management**: React hooks with Firestore real-time sync
-- **Question Algorithm**: Custom Elo-based recommendation engine
+This project provides competitive SAT practice with adaptive difficulty. Practice for the SAT using realistic questions with detailed explanations and track your progress over time.
 
-## Getting Started
+## Set up on your own
 
-```bash
-npm install
-npm run dev
-```
+This project uses the Next.js framework with TypeScript. For setup instructions, view [README](./next.README.md). It is the same as for any other Next.js project.
 
-## Architecture
+## Contribute
 
-### Session Management
-
-The app uses Firebase as the single source of truth with optimistic UI updates:
-
-1. **Client State**: Maintains local question queue and current index
-2. **Firestore**: Stores `bufferedQuestions` array with answer state
-3. **Real-time Sync**: `onSnapshot` listener keeps client in sync with server
-4. **Optimistic Updates**: UI updates immediately, server confirms later
-
-### Question Flow
-
-1. User answers question → local state updates immediately
-2. API processes answer in background
-3. Firestore document updated with answer info
-4. Client syncs via listener for ground truth
+This project is maintained by [Lev](https://github.com/levtechs). If you would like to contribute, reach out on [Discord](https://discordapp.com/users/739263047318634637) or write a message in [Discussions](https://github.com/levtechs/sat/discussions)

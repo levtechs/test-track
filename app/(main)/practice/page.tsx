@@ -497,8 +497,8 @@ export default function PracticePage() {
 
   if (state.phase === "select") {
     const modules: { module: Module; label: string; description: string; icon: typeof BookOpen; color: string }[] = [
-      { module: "english", label: "English", description: "Reading & Writing", icon: BookOpen, color: "bg-blue-500/10 text-blue-500" },
-      { module: "math", label: "Math", description: "Problem Solving & Data", icon: Calculator, color: "bg-emerald-500/10 text-emerald-500" },
+      { module: "english", label: "English", description: "Reading & Writing", icon: BookOpen, color: "bg-neutral-500/10 text-neutral-600" },
+      { module: "math", label: "Math", description: "Problem Solving & Data", icon: Calculator, color: "bg-neutral-500/10 text-neutral-600" },
     ];
 
     const modes: { mode: SessionMode; label: string; description: string; icon: typeof Zap; needsTimeSelect?: boolean }[] = [
@@ -509,7 +509,7 @@ export default function PracticePage() {
     ];
 
     return (
-      <div className="flex flex-col px-4 pt-8 pb-24">
+      <div className="flex flex-col px-4 pt-8 pb-8 min-h-full">
         <h1 className="mb-6 text-2xl font-bold text-center">Practice</h1>
         
         <div className="space-y-8 w-full max-w-md mx-auto overflow-y-auto">

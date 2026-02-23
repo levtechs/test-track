@@ -15,8 +15,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SAT Practice",
-  description: "Competitive SAT question practice with adaptive learning",
+  title: "Coi SAT Practice",
+  description: "Adaptive SAT practice with Elo-based recommendations",
+  openGraph: {
+    title: "Coi SAT Practice",
+    description: "Adaptive SAT practice with Elo-based recommendations",
+    url: "https://sat.coilearn.com",
+    siteName: "Coi SAT Practice",
+    images: [
+      {
+        url: "https://sat.coilearn.com/land.png",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Coi SAT Practice",
+    description: "Adaptive SAT practice with Elo-based recommendations",
+    images: ["https://sat.coilearn.com/land.png"],
+  },
 };
 
 export const viewport: Viewport = {
@@ -25,8 +44,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f0f4ff" },
-    { media: "(prefers-color-scheme: dark)", color: "#1a1d2e" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f1ea" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
 };
 

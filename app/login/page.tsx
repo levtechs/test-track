@@ -28,10 +28,10 @@ export default function LoginPage() {
     <div className="flex min-h-dvh flex-col items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground text-2xl font-bold">
-            SAT
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-500 text-neutral-foreground text-2xl font-bold">
+            S
           </div>
-          <CardTitle className="text-2xl">SAT Practice</CardTitle>
+          <CardTitle className="text-2xl">Coi SAT Practice</CardTitle>
           <p className="text-sm text-muted-foreground">
             Adaptive practice with competitive features
           </p>

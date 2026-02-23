@@ -5,7 +5,7 @@ import { Swords } from "lucide-react";
 
 export default function BattlePage() {
   return (
-    <div className="flex flex-col items-center justify-center px-4 pt-20">
+    <div className="flex flex-col items-center justify-center px-4 pt-20 min-h-full">
       <Card className="w-full max-w-sm">
         <CardContent className="flex flex-col items-center py-12">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">

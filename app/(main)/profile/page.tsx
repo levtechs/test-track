@@ -129,15 +129,15 @@ export default function ProfilePage() {
   };
 
   const getEloColor = (rating: number) => {
-    if (rating >= 1200) return "text-green-600";
-    if (rating >= 900) return "text-yellow-600";
-    return "text-red-600";
+    if (rating >= 1200) return "text-neutral-600";
+    if (rating >= 900) return "text-neutral-500";
+    return "text-neutral-400";
   };
 
   const getEloBadge = (rating: number) => {
-    if (rating >= 1200) return "bg-green-500/10 text-green-600 border-green-500/20";
-    if (rating >= 900) return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
-    return "bg-red-500/10 text-red-600 border-red-500/20";
+    if (rating >= 1200) return "bg-neutral-500/10 text-neutral-600 border-neutral-500/20";
+    if (rating >= 900) return "bg-neutral-500/10 text-neutral-500 border-neutral-500/20";
+    return "bg-neutral-500/10 text-neutral-400 border-neutral-500/20";
   };
 
   const calculateCategoryAverage = (skills: string[]): number | null => {
@@ -232,7 +232,8 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-6">
+    <div className="min-h-full">
+      <div className="mx-auto max-w-lg px-4 py-6">
       {/* User header */}
       <div className="mb-6 flex items-center gap-4">
         <Avatar className="h-16 w-16">
@@ -257,7 +258,7 @@ export default function ProfilePage() {
         <Card>
           <CardHeader className="pb-2 pt-4 px-4">
             <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-blue-500" />
+              <BookOpen className="h-4 w-4 text-neutral-500" />
               <CardTitle className="text-sm font-medium">English</CardTitle>
             </div>
           </CardHeader>
@@ -270,7 +271,7 @@ export default function ProfilePage() {
         <Card>
           <CardHeader className="pb-2 pt-4 px-4">
             <div className="flex items-center gap-2">
-              <Calculator className="h-4 w-4 text-emerald-500" />
+              <Calculator className="h-4 w-4 text-neutral-500" />
               <CardTitle className="text-sm font-medium">Math</CardTitle>
             </div>
           </CardHeader>
@@ -345,7 +346,7 @@ export default function ProfilePage() {
               <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
-                    <BookOpen className="h-3 w-3 text-blue-500" />
+                    <BookOpen className="h-3 w-3 text-neutral-500" />
                     <span className="text-sm font-medium">English</span>
                   </div>
                   <div className="text-xl font-bold">{userProfile.estimatedEnglish.score}</div>
@@ -355,7 +356,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1">
-                    <Calculator className="h-3 w-3 text-emerald-500" />
+                    <Calculator className="h-3 w-3 text-neutral-500" />
                     <span className="text-sm font-medium">Math</span>
                   </div>
                   <div className="text-xl font-bold">{userProfile.estimatedMath.score}</div>
@@ -375,14 +376,15 @@ export default function ProfilePage() {
 
       {/* Skill breakdown */}
       <div className="space-y-6">
-        {renderModuleSkills("english", <BookOpen className="h-4 w-4" />, "English", "bg-blue-500/10 text-blue-600")}
-        {renderModuleSkills("math", <Calculator className="h-4 w-4" />, "Math", "bg-emerald-500/10 text-emerald-600")}
+        {renderModuleSkills("english", <BookOpen className="h-4 w-4" />, "English", "bg-neutral-500/10 text-neutral-600")}
+        {renderModuleSkills("math", <Calculator className="h-4 w-4" />, "Math", "bg-neutral-500/10 text-neutral-600")}
       </div>
 
       <Separator className="my-6" />
       <p className="text-center text-xs text-muted-foreground">
         Keep practicing to improve your skills and ratings
       </p>
+      </div>
     </div>
   );
 }
