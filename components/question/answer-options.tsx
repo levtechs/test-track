@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, isValidNumericInput, checkAnswerCorrect } from "@/lib/utils";
 import { HtmlContent } from "./html-content";
 import { Button } from "@/components/ui/button";
 import type { AnswerOption, QuestionType } from "@/types";
@@ -31,6 +31,7 @@ export function AnswerOptions({
 
   // FIB state
   const [inputValue, setInputValue] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // FIB (Fill-in-the-blank) rendering
   if (isFIB) {
@@ -39,12 +40,18 @@ export function AnswerOptions({
       : (selectedAnswer ?? inputValue);
     
     const handleSubmit = () => {
-      if (inputValue.trim() && !disabled) {
-        onSelect(inputValue.trim());
+      const trimmed = inputValue.trim();
+      if (!trimmed || disabled) return;
+      
+      if (!isValidNumericInput(trimmed)) {
+        setValidationError("Please enter a valid number (e.g. 27, 3.5, 1/2)");
+        return;
       }
+      setValidationError(null);
+      onSelect(trimmed);
     };
 
-    const isCorrect = hasSubmitted && (selectedAnswer ?? "").toLowerCase().trim() === correctAnswer?.toLowerCase().trim();
+    const isCorrect = hasSubmitted && correctAnswer !== null && checkAnswerCorrect(selectedAnswer ?? "", correctAnswer);
     const isWrong = hasSubmitted && (selectedAnswer ?? "").trim() && !isCorrect;
 
     return (
@@ -52,14 +59,21 @@ export function AnswerOptions({
         <div className="flex gap-2">
           <input
             type="text"
+            inputMode="decimal"
             value={displayValue}
-            onChange={(e) => !hasSubmitted && setInputValue(e.target.value)}
+            onChange={(e) => {
+              if (!hasSubmitted) {
+                setInputValue(e.target.value);
+                if (validationError) setValidationError(null);
+              }
+            }}
             disabled={disabled || hasSubmitted}
             placeholder="Enter your answer"
             className={cn(
               "flex-1 rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all",
               "focus:outline-none focus:ring-2 focus:ring-primary/20",
-              !hasSubmitted && "border-border bg-card focus:border-primary",
+              !hasSubmitted && !validationError && "border-border bg-card focus:border-primary",
+              !hasSubmitted && validationError && "border-red-500 bg-red-500/10",
               hasSubmitted && isCorrect && "border-green-500 bg-green-500/10 text-green-700",
               hasSubmitted && isWrong && "border-red-500 bg-red-500/10 text-red-700",
               disabled && "opacity-60"
@@ -77,6 +91,10 @@ export function AnswerOptions({
             </Button>
           )}
         </div>
+
+        {validationError && !hasSubmitted && (
+          <p className="text-sm text-red-600 font-medium">{validationError}</p>
+        )}
         
         {hasSubmitted && (
           <div className={cn(
