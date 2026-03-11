@@ -53,23 +53,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (userSnap.exists()) {
           setUserProfile(userSnap.data() as UserProfile);
         } else {
-          // Create new user profile
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            displayName: firebaseUser.displayName || "Anonymous",
-            photoURL: firebaseUser.photoURL || null,
-            englishRating: 1000,
-            mathRating: 1000,
-            totalQuestions: 0,
-            totalCorrect: 0,
-            skillStats: {},
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            dayStreak: 0,
-            lastActiveDate: null,
-          };
-          await setDoc(userRef, newProfile);
-          setUserProfile(newProfile);
+          const token = await firebaseUser.getIdToken();
+          const res = await fetch("/api/users/create", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          });
+          if (res.ok) {
+            const { userProfile } = await res.json();
+            setUserProfile(userProfile);
+          } else {
+            console.error("Failed to create user profile");
+            setUserProfile(null);
+          }
         }
       } else {
         setUserProfile(null);
