@@ -14,7 +14,7 @@ import {
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import type { UserProfile } from "@/types";
 
@@ -46,30 +46,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
 
       if (firebaseUser) {
-        // Fetch or create user profile
+        // Fetch user profile
         const userRef = doc(db, "users", firebaseUser.uid);
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
           setUserProfile(userSnap.data() as UserProfile);
         } else {
-          // Create new user profile
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            displayName: firebaseUser.displayName || "Anonymous",
-            photoURL: firebaseUser.photoURL || null,
-            englishRating: 1000,
-            mathRating: 1000,
-            totalQuestions: 0,
-            totalCorrect: 0,
-            skillStats: {},
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            dayStreak: 0,
-            lastActiveDate: null,
-          };
-          await setDoc(userRef, newProfile);
-          setUserProfile(newProfile);
+          // Create new user profile via API (server-side write)
+          const idToken = await firebaseUser.getIdToken();
+          const res = await fetch("/api/profile/create", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
+            },
+          });
+          if (res.ok) {
+            const { profile } = await res.json();
+            setUserProfile(profile);
+          }
         }
       } else {
         setUserProfile(null);

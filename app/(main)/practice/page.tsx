@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuestionCard, InfoButton } from "@/components/question/question-card";
@@ -188,24 +188,32 @@ export default function PracticePage() {
     return localStorage.getItem("sat_last_module") as Module | null;
   }, []);
 
-  // Helper to save last session info to Firebase (for authenticated users) or localStorage (for guests)
+  // Helper to save last session info via API (for authenticated users) or localStorage (for guests)
   const saveLastSessionInfo = useCallback(async (module: Module, sessionId: string, index: number, isGuest: boolean, userId?: string) => {
     if (!isGuest && userId) {
       try {
-        const userRef = doc(db, "users", userId);
-        const updateData = module === "english" 
-          ? { lastModule: module, lastEnglishSessionId: sessionId, lastEnglishIndex: index }
-          : { lastModule: module, lastMathSessionId: sessionId, lastMathIndex: index };
-        await updateDoc(userRef, updateData);
+        const token = await getIdToken();
+        if (token) {
+          fetch("/api/sessions/bookmark", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ module, sessionId, index }),
+          }).catch((err) => {
+            console.error("Failed to save session bookmark:", err);
+          });
+        }
       } catch (err) {
-        console.error("Failed to save session info to Firebase:", err);
+        console.error("Failed to save session info:", err);
       }
     } else {
       localStorage.setItem("sat_last_session_id", sessionId);
       localStorage.setItem("sat_last_module", module);
       localStorage.setItem(`sat_last_index_${module}`, index.toString());
     }
-  }, []);
+  }, [getIdToken]);
 
   // Handle session update from Firebase
   const handleSessionUpdate = useCallback((sessionData: Session, isInitial = false, providedIndex?: number) => {
