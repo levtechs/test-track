@@ -65,6 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (res.ok) {
             const { profile } = await res.json();
             setUserProfile(profile);
+          } else {
+            console.error(`Failed to create user profile. Status: ${res.status}`);
+            await firebaseSignOut(auth);
+            setUser(null);
+            setUserProfile(null);
           }
         }
       } else {

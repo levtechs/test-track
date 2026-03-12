@@ -194,16 +194,17 @@ export default function PracticePage() {
       try {
         const token = await getIdToken();
         if (token) {
-          fetch("/api/sessions/bookmark", {
+          const res = await fetch("/api/sessions/bookmark", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ module, sessionId, index }),
-          }).catch((err) => {
-            console.error("Failed to save session bookmark:", err);
           });
+          if (!res.ok) {
+            console.error(`Failed to save session bookmark: status ${res.status}`);
+          }
         }
       } catch (err) {
         console.error("Failed to save session info:", err);

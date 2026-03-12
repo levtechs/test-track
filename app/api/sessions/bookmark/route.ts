@@ -1,23 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { verifyAuthRequired } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization");
-
-    if (!authHeader?.startsWith("Bearer ")) {
+    const auth = await verifyAuthRequired(request);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const token = authHeader.slice(7);
-    let userId: string;
-
-    try {
-      const decoded = await adminAuth.verifyIdToken(token);
-      userId = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-    }
+    const { userId } = auth;
 
     const body = await request.json();
     const { module, sessionId, index } = body as {
@@ -33,9 +25,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!sessionId || typeof index !== "number") {
+    if (!sessionId || !Number.isInteger(index) || index < 0) {
       return NextResponse.json(
-        { error: "Missing sessionId or index" },
+        { error: "Missing sessionId or invalid index" },
         { status: 400 }
       );
     }
@@ -61,6 +53,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Verify user profile exists before updating
+    const userRef = adminDb.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      return NextResponse.json(
+        { error: "User profile not found" },
+        { status: 404 }
+      );
+    }
+
     // Update the user's bookmark fields
     const updateData =
       module === "english"
@@ -75,7 +77,7 @@ export async function POST(request: NextRequest) {
             lastMathIndex: index,
           };
 
-    await adminDb.collection("users").doc(userId).update(updateData);
+    await userRef.update(updateData);
 
     return NextResponse.json({ success: true });
   } catch (error) {

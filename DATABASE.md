@@ -33,7 +33,7 @@ To modify data, the frontend follows this sequence:
 | Collection  | Client Read          | Client Write | Backend Read | Backend Write | Notes                                |
 | ----------- | -------------------- | ------------ | ------------ | ------------- | ------------------------------------ |
 | `users`     | Own document only    | **Denied**   | Yes          | Yes           | Auth required, uid-scoped            |
-| `sessions`  | Own sessions only    | **Denied**   | Yes          | Yes           | Auth required, userId field check    |
+| `sessions`  | Own sessions only    | **Denied**   | Yes          | Yes           | Auth required (guests can read guest sessions) |
 | `questions` | Public (all readers) | **Denied**   | Yes          | Yes           | Guests need access for practice      |
 | `responses` | **Denied**           | **Denied**   | Yes          | Yes           | Backend-only, no client access       |
 
@@ -49,7 +49,6 @@ To modify data, the frontend follows this sequence:
 
 ## 6. Configuration Files
 - `firestore.rules`: Defines the read-only policy for Firestore.
-- `firebase.json`: Links rules to the Firebase project.
 
 ## 7. Applying Security Rules
 

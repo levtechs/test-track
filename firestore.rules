@@ -8,9 +8,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Sessions: authenticated users can only read their own sessions
+    // Sessions: authenticated users can read their own sessions,
+    // guest sessions (userId starts with "guest_") are readable without auth
     match /sessions/{sessionId} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if (request.auth != null && resource.data.userId == request.auth.uid)
+                   || resource.data.userId[0:6] == "guest_";
       allow write: if false;
     }
 

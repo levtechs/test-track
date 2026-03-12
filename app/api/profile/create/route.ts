@@ -1,25 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { verifyAuthRequired } from "@/lib/api-auth";
 import type { UserProfile } from "@/types";
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization");
-
-    if (!authHeader?.startsWith("Bearer ")) {
+    const auth = await verifyAuthRequired(request);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const token = authHeader.slice(7);
-    let decoded;
-
-    try {
-      decoded = await adminAuth.verifyIdToken(token);
-    } catch {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-    }
-
-    const userId = decoded.uid;
+    const { userId, decoded } = auth;
     const userRef = adminDb.collection("users").doc(userId);
     const userSnap = await userRef.get();
 
