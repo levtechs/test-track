@@ -1,11 +1,40 @@
 import { NextRequest } from "next/server";
 import { adminAuth, adminDb } from "./firebase-admin";
+import type { DecodedIdToken } from "firebase-admin/auth";
 import type { UserProfile } from "@/types";
 
 export interface AuthResult {
   userId: string;
   userProfile: UserProfile | null;
   isGuest: boolean;
+}
+
+export interface StrictAuthResult {
+  userId: string;
+  decoded: DecodedIdToken;
+}
+
+/**
+ * Verifies that the request has a valid Firebase ID token.
+ * Returns null if auth is missing or invalid (caller should return 401).
+ * Use this for routes that strictly require authentication (no guest fallback).
+ */
+export async function verifyAuthRequired(
+  request: NextRequest
+): Promise<StrictAuthResult | null> {
+  const authHeader = request.headers.get("authorization");
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authHeader.slice(7);
+  try {
+    const decoded = await adminAuth.verifyIdToken(token);
+    return { userId: decoded.uid, decoded };
+  } catch {
+    return null;
+  }
 }
 
 /**
