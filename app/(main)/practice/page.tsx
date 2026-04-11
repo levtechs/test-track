@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { QuestionCard, InfoButton } from "@/components/question/question-card";
 import { RationaleView } from "@/components/question/rationale-view";
-import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, RotateCcw, Calendar } from "lucide-react";
+import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, RotateCcw, Calendar, History } from "lucide-react";
 import type { Difficulty, Module, QuestionClient, Session } from "@/types";
 import type { QueuedQuestion } from "@/types";
 import type { PracticeFilters, SessionMode } from "@/types/user";
@@ -37,6 +37,113 @@ const DIFFICULTY_OPTIONS: { value: Difficulty; label: string }[] = [
 ];
 
 const FILTER_PILL_CLASS = "h-auto max-w-full min-w-0 shrink-0 px-3 py-2 text-left whitespace-normal break-words";
+const SESSION_POSITIONS_STORAGE_KEY = "sat_session_positions";
+const MAX_RECENT_SESSIONS = 6;
+const COLLAPSED_RECENT_SESSIONS = 3;
+
+type SessionPosition = {
+  module: Module;
+  index: number;
+  mode: SessionMode;
+  updatedAt: number;
+};
+
+type RecentSession = {
+  sessionId: string;
+  module: Module;
+  mode: SessionMode;
+  lastActiveAt: number;
+  answeredCount: number;
+  totalQuestions: number;
+  savedIndex?: number;
+  modules: Module[];
+  customPreview?: string;
+};
+
+function readSessionPositions() {
+  if (typeof window === "undefined") return {} as Record<string, SessionPosition>;
+
+  try {
+    const raw = localStorage.getItem(SESSION_POSITIONS_STORAGE_KEY);
+    if (!raw) return {} as Record<string, SessionPosition>;
+    const parsed = JSON.parse(raw) as Record<string, SessionPosition>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {} as Record<string, SessionPosition>;
+  }
+}
+
+function writeSessionPositions(positions: Record<string, SessionPosition>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SESSION_POSITIONS_STORAGE_KEY, JSON.stringify(positions));
+}
+
+function formatModeLabel(mode: SessionMode) {
+  switch (mode) {
+    case "sandbox":
+      return "Practice";
+    case "custom":
+      return "Custom Practice";
+    case "speed_round":
+      return "Speed Round";
+    case "review":
+      return "Review";
+    case "daily":
+      return "Daily Challenge";
+  }
+}
+
+function formatModuleLabel(module: Module) {
+  return module === "english" ? "English" : "Math";
+}
+
+function formatRelativeTime(timestamp: number) {
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(1, Math.floor(diffMs / 60000));
+
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function formatDifficultyLabel(difficulty: Difficulty) {
+  switch (difficulty) {
+    case "E":
+      return "Easy";
+    case "M":
+      return "Medium";
+    case "H":
+      return "Hard";
+  }
+}
+
+function formatCustomPracticePreview(practiceFilters?: PracticeFilters) {
+  if (!practiceFilters) return undefined;
+
+  const tokens: string[] = [];
+
+  if (practiceFilters.difficulties.length > 0 && practiceFilters.difficulties.length < 3) {
+    tokens.push(...practiceFilters.difficulties.map(formatDifficultyLabel));
+  }
+
+  if (practiceFilters.domains.length > 0) {
+    tokens.push(...practiceFilters.domains);
+  }
+
+  if (practiceFilters.skills.length > 0) {
+    tokens.push(...practiceFilters.skills);
+  }
+
+  if (tokens.length === 0) return "Any mix";
+
+  const preview = tokens.slice(0, 2).join(" • ");
+  const remainingCount = tokens.length - 2;
+  return remainingCount > 0 ? `${preview} +${remainingCount}` : preview;
+}
 
 type PracticeState =
   | { phase: "select" }
@@ -63,6 +170,9 @@ export default function PracticePage() {
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [customFilters, setCustomFilters] = useState<PracticeFilters>(DEFAULT_PRACTICE_FILTERS);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [recentSessionsLoading, setRecentSessionsLoading] = useState(false);
+  const [recentSessionsExpanded, setRecentSessionsExpanded] = useState(false);
 
   // Timer countdown for speed round
   useEffect(() => {
@@ -99,6 +209,24 @@ export default function PracticePage() {
       localStorage.setItem("sat_guest_id", guestId);
     }
     return guestId;
+  }, []);
+
+  const saveSessionPosition = useCallback((sessionId: string, module: Module, index: number, mode: SessionMode) => {
+    const nextPositions = {
+      ...readSessionPositions(),
+      [sessionId]: {
+        module,
+        index,
+        mode,
+        updatedAt: Date.now(),
+      },
+    };
+
+    const trimmedEntries = Object.entries(nextPositions)
+      .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+      .slice(0, 20);
+
+    writeSessionPositions(Object.fromEntries(trimmedEntries));
   }, []);
 
   // Fetch question - uses cache, returns instantly if cached
@@ -243,6 +371,61 @@ export default function PracticePage() {
     }
   }, [getIdToken]);
 
+  const loadRecentSessions = useCallback(async () => {
+    if (authLoading) return;
+
+    const activeUserId = user?.uid ?? getGuestId();
+    if (!activeUserId) {
+      setRecentSessions([]);
+      return;
+    }
+
+    setRecentSessionsLoading(true);
+
+    try {
+      const sessionsQuery = query(collection(db, "sessions"), where("userId", "==", activeUserId));
+      const snapshot = await getDocs(sessionsQuery);
+      const sessionPositions = readSessionPositions();
+
+      const nextRecentSessions = snapshot.docs
+        .map((sessionDoc) => {
+          const sessionData = sessionDoc.data() as Session;
+          const answeredCount = sessionData.bufferedQuestions.filter((question) => question.answeredAt !== undefined).length;
+          const savedIndex = sessionPositions[sessionData.sessionId]?.index;
+          const modules = sessionData.mode === "custom" && sessionData.practiceFilters?.modules.length
+            ? sessionData.practiceFilters.modules
+            : [sessionData.module];
+
+          return {
+            sessionId: sessionData.sessionId,
+            module: sessionData.module,
+            mode: sessionData.mode,
+            lastActiveAt: sessionData.lastActiveAt,
+            answeredCount,
+            totalQuestions: sessionData.bufferedQuestions.length,
+            savedIndex,
+            modules,
+            customPreview: sessionData.mode === "custom"
+              ? formatCustomPracticePreview(sessionData.practiceFilters)
+              : undefined,
+          } satisfies RecentSession;
+        })
+        .sort((a, b) => {
+          const aSortTime = sessionPositions[a.sessionId]?.updatedAt ?? a.lastActiveAt;
+          const bSortTime = sessionPositions[b.sessionId]?.updatedAt ?? b.lastActiveAt;
+          return bSortTime - aSortTime;
+        })
+        .slice(0, MAX_RECENT_SESSIONS);
+
+      setRecentSessions(nextRecentSessions);
+    } catch (err) {
+      console.error("Error loading recent sessions:", err);
+      setRecentSessions([]);
+    } finally {
+      setRecentSessionsLoading(false);
+    }
+  }, [authLoading, user, getGuestId]);
+
   // Handle session update from Firebase
   const handleSessionUpdate = useCallback((sessionData: Session, isInitial = false, providedIndex?: number) => {
     setSession(sessionData);
@@ -266,6 +449,58 @@ export default function PracticePage() {
       loadQuestionAtIndex(idx, sessionData.bufferedQuestions);
     }
   }, [loadQuestionAtIndex]);
+
+  const openExistingSession = useCallback(async (
+    sessionId: string,
+    module: Module,
+    mode: SessionMode,
+    savedIndex?: number
+  ) => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
+    questionCache.current.clear();
+    hasInitializedRef.current = false;
+    setSelectionError(null);
+    setState({ phase: "loading", module, mode });
+    setSession(null);
+    setCurrentQuestion(null);
+    setSelectedAnswer(null);
+    setAnswerResult(null);
+    setShowRationale(false);
+    setCurrentIndex(savedIndex ?? 0);
+    setSpeedRoundComplete(false);
+    setTimeRemaining(null);
+
+    try {
+      const sessionRef = doc(db, "sessions", sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+
+      if (!sessionSnap.exists()) {
+        throw new Error("That session is no longer available");
+      }
+
+      const sessionData = sessionSnap.data() as Session;
+      handleSessionUpdate(sessionData, true, savedIndex);
+      setState({ phase: "active", sessionId, module: sessionData.module, mode: sessionData.mode });
+
+      const unsub = onSnapshot(sessionRef, (snap) => {
+        if (!snap.exists()) {
+          setState({ phase: "select" });
+          setSession(null);
+          return;
+        }
+
+        const nextSessionData = snap.data() as Session;
+        handleSessionUpdate(nextSessionData, false);
+      });
+
+      unsubscribeRef.current = unsub;
+    } catch (err) {
+      console.error("Error opening existing session:", err);
+      setSelectionError(err instanceof Error ? err.message : "Failed to open session");
+      setState({ phase: "select" });
+    }
+  }, [handleSessionUpdate]);
 
   // Resume session (from Firebase for auth users, localStorage for guests)
   useEffect(() => {
@@ -293,24 +528,16 @@ export default function PracticePage() {
         return;
       }
 
-      setState({ phase: "active", sessionId: savedSessionId, module: savedModule, mode: "sandbox" });
-
-      const sessionRef = doc(db, "sessions", savedSessionId);
-      const unsub = onSnapshot(sessionRef, (snap) => {
-        if (!snap.exists()) {
-          setState({ phase: "select" });
-          return;
-        }
-
-        const sessionData = snap.data() as Session;
-        handleSessionUpdate(sessionData, true, savedIndex);
-      });
-
-      unsubscribeRef.current = unsub;
+      await openExistingSession(savedSessionId, savedModule, "sandbox", savedIndex);
     };
 
     resumeSession();
-  }, [user, authLoading, getLastModule, getLastSessionInfo, handleSessionUpdate]);
+  }, [user, authLoading, getLastModule, getLastSessionInfo, openExistingSession]);
+
+  useEffect(() => {
+    if (state.phase !== "select") return;
+    loadRecentSessions();
+  }, [state.phase, loadRecentSessions]);
 
   // Start new session
   const startSession = useCallback(async (
@@ -358,6 +585,7 @@ export default function PracticePage() {
         const isGuest = !user;
         await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
       }
+      saveSessionPosition(sessionId, module, startIdx, mode);
 
       setState({ phase: "active", sessionId, module, mode });
       setCurrentIndex(startIdx);
@@ -381,7 +609,7 @@ export default function PracticePage() {
       setSelectionError(err instanceof Error ? err.message : "Failed to start session");
       setState({ phase: "select" });
     }
-  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo]);
+  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
 
   // Submit answer
   const submitAnswer = useCallback(async (optionId: string) => {
@@ -463,13 +691,14 @@ export default function PracticePage() {
       setTimeout(() => {
         const nextIdx = currentIndex + 1;
         setCurrentIndex(nextIdx);
+        saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
         if (session.mode === "sandbox") {
           saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
         }
         loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
       }, 500);
     }
-  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo]);
+  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
 
   // Go to next unanswered
   const goToNextUnanswered = useCallback(() => {
@@ -479,9 +708,10 @@ export default function PracticePage() {
     if (nextIdx !== -1 && nextIdx !== currentIndex) {
       setCurrentIndex(nextIdx);
       localStorage.setItem("sat_last_index", nextIdx.toString());
+      saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveSessionPosition]);
 
   // Go back
   const goBack = useCallback(() => {
@@ -489,13 +719,14 @@ export default function PracticePage() {
       const newIdx = currentIndex - 1;
       setCurrentIndex(newIdx);
       if (session) {
+        saveSessionPosition(session.sessionId, session.module, newIdx, session.mode);
         if (session.mode === "sandbox") {
           saveLastSessionInfo(session.module, session.sessionId, newIdx, !user, user?.uid);
         }
         loadQuestionAtIndex(newIdx, session.bufferedQuestions);
       }
     }
-  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user]);
+  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
 
   // Go forward - can only go to first unanswered
   const goForward = useCallback(() => {
@@ -507,12 +738,13 @@ export default function PracticePage() {
     if (currentIndex < maxIndex) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
+      saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
       if (session.mode === "sandbox") {
         saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
       }
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
 
   // Cleanup
   useEffect(() => {
@@ -594,12 +826,91 @@ export default function PracticePage() {
     const setPracticeFilters = (nextFilters: PracticeFilters) => {
       setCustomFilters(nextFilters);
     };
+    const visibleRecentSessions = recentSessionsExpanded
+      ? recentSessions
+      : recentSessions.slice(0, COLLAPSED_RECENT_SESSIONS);
+    const canToggleRecentSessions = recentSessions.length > COLLAPSED_RECENT_SESSIONS;
 
     return (
       <div className="flex flex-col px-4 pt-8 pb-8 min-h-full">
         <h1 className="mb-6 text-2xl font-bold text-center">Practice</h1>
         
         <div className="space-y-8 w-full max-w-md mx-auto overflow-y-auto">
+          {(recentSessionsLoading || recentSessions.length > 0) && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Previous Sessions</h2>
+              </div>
+
+              {recentSessionsLoading ? (
+                <Card>
+                  <CardHeader className="py-3">
+                    <p className="text-sm text-muted-foreground">Loading your recent sessions...</p>
+                  </CardHeader>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {visibleRecentSessions.map((recentSession) => {
+                    const moduleSummary = recentSession.modules.length > 1
+                      ? "English + Math"
+                      : formatModuleLabel(recentSession.modules[0] || recentSession.module);
+                    const nextQuestionLabel = recentSession.savedIndex !== undefined
+                      ? `Q${recentSession.savedIndex + 1}`
+                      : recentSession.answeredCount < recentSession.totalQuestions
+                        ? `Q${recentSession.answeredCount + 1}`
+                        : "Done";
+
+                    return (
+                      <button
+                        key={recentSession.sessionId}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left transition-all hover:border-primary/50 hover:bg-accent/40"
+                        onClick={() => openExistingSession(
+                          recentSession.sessionId,
+                          recentSession.module,
+                          recentSession.mode,
+                          recentSession.savedIndex
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm leading-tight">
+                            <span className="font-medium">{formatModeLabel(recentSession.mode)}</span>
+                            <span className="text-muted-foreground"> {moduleSummary}</span>
+                          </p>
+                          <p className="truncate text-[11px] leading-tight text-muted-foreground">
+                            {recentSession.mode === "custom" && recentSession.customPreview
+                              ? `${recentSession.customPreview} • ${nextQuestionLabel}`
+                              : nextQuestionLabel}
+                            {` • ${formatRelativeTime(recentSession.lastActiveAt)}`}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-[11px] font-medium text-muted-foreground">
+                          Continue
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {canToggleRecentSessions && (
+                    <div className="flex justify-center pt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setRecentSessionsExpanded((expanded) => !expanded)}
+                      >
+                        {recentSessionsExpanded
+                          ? "Show less"
+                          : `Show ${recentSessions.length - visibleRecentSessions.length} more`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <Card
             className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.98]"
             onClick={() => {
