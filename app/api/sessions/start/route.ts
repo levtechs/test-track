@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { getQuestionsByModule } from "@/lib/question-cache";
+import { getQuestionsByModule, getQuestionsByModules } from "@/lib/question-cache";
 import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
 import { ratingField } from "@/lib/algorithm/rating";
 import { verifyAuth } from "@/lib/api-auth";
+import { arePracticeFiltersEqual, filterQuestionsForPractice, hasPracticeFilters, normalizePracticeFilters } from "@/lib/practice-filters";
 import type { Session, Module } from "@/types";
-import type { SkillElo, QuestionRepetition, SessionMode } from "@/types/user";
+import type { SkillElo, QuestionRepetition, SessionMode, PracticeFilters } from "@/types/user";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { module, mode = "sandbox", timeLimitMs } = body as { module: Module; mode: SessionMode; timeLimitMs?: number };
+    const { module, mode = "sandbox", timeLimitMs, practiceFilters } = body as {
+      module: Module;
+      mode: SessionMode;
+      timeLimitMs?: number;
+      practiceFilters?: PracticeFilters;
+    };
 
     if (!module || !["english", "math"].includes(module)) {
       return NextResponse.json(
@@ -19,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!["sandbox", "speed_round", "review", "daily"].includes(mode)) {
+    if (!["sandbox", "custom", "speed_round", "review", "daily"].includes(mode)) {
       return NextResponse.json(
         { error: "Invalid mode" },
         { status: 400 }
@@ -27,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate via Authorization header
-    const { userId, userProfile, isGuest } = await verifyAuth(request);
+    const { userId, userProfile } = await verifyAuth(request);
 
     const currentRating = userProfile
       ? userProfile[ratingField(module)]
@@ -35,6 +41,12 @@ export async function POST(request: NextRequest) {
 
     const skillElos: Record<string, SkillElo> = userProfile?.skillElos || {};
     const questionRepetitions: Record<string, QuestionRepetition> = userProfile?.questionRepetitions || {};
+    const normalizedPracticeFilters = mode === "custom"
+      ? normalizePracticeFilters(practiceFilters)
+      : normalizePracticeFilters();
+    const customModules = normalizedPracticeFilters.modules.length > 0
+      ? normalizedPracticeFilters.modules
+      : [module];
 
     // For speed_round, always start fresh - delete any existing speed_round sessions
     if (mode === "speed_round") {
@@ -49,14 +61,14 @@ export async function POST(request: NextRequest) {
       await Promise.all(deletePromises);
     }
 
-    // Look for an existing session for this user + module + mode
-    // If mode is sandbox, also match sessions with no mode (legacy sessions)
+    // Look for an existing session for this user + module + mode.
+    // Sandbox sessions also need the same filter set to resume correctly.
     const existingSnap = await adminDb
       .collection("sessions")
       .where("userId", "==", userId)
       .where("module", "==", module)
       .where("mode", "==", mode)
-      .limit(1)
+      .limit(mode === "custom" ? 10 : 1)
       .get();
 
     // If no session with mode found and mode is sandbox, look for session with no mode
@@ -74,7 +86,7 @@ export async function POST(request: NextRequest) {
         return !data.mode;
       });
       
-      if (noModeSession) {
+      if (noModeSession && arePracticeFiltersEqual(noModeSession.data().practiceFilters, normalizedPracticeFilters)) {
         const existingDoc = noModeSession;
         let existingSession = existingDoc.data() as Session;
 
@@ -97,12 +109,21 @@ export async function POST(request: NextRequest) {
         // If buffer is empty, replenish it
         if (existingSession.bufferedQuestions.length === 0) {
           const allQuestions = await getQuestionsByModule(module);
+          const candidatePool = filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters);
+
+          if (candidatePool.length === 0) {
+            return NextResponse.json(
+              { error: "No questions match those practice filters" },
+              { status: 400 }
+            );
+          }
+
           const recommendedIds = recommendQuestions(
             {
-              candidates: allQuestions,
+              candidates: candidatePool,
               userRating: currentRating,
               userProfile,
-              session: { ...existingSession, currentRating },
+              session: { ...existingSession, currentRating, practiceFilters: normalizedPracticeFilters },
               skillElos,
               questionRepetitions,
             },
@@ -111,14 +132,23 @@ export async function POST(request: NextRequest) {
           updates.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
         }
 
-        await existingDoc.ref.update(updates);
+        await existingDoc.ref.update({
+          ...updates,
+          targetedSkills: existingSession.targetedSkills,
+          targetedDomains: existingSession.targetedDomains || [],
+          difficultyBias: existingSession.difficultyBias,
+          practiceFilters: normalizedPracticeFilters,
+        });
+
+        const nextBufferedQuestions = (updates.bufferedQuestions as Session["bufferedQuestions"] | undefined)
+          ?? existingSession.bufferedQuestions;
 
         return NextResponse.json({
           sessionId: existingSession.sessionId,
           module: existingSession.module,
           mode: existingSession.mode,
           currentRating: userProfile ? currentRating : existingSession.currentRating,
-          bufferedQuestions: existingSession.bufferedQuestions,
+          bufferedQuestions: nextBufferedQuestions,
           resumed: true,
         });
       }
@@ -126,8 +156,12 @@ export async function POST(request: NextRequest) {
 
     // Handle sessions with a proper mode
     if (!existingSnap.empty) {
-      const existingDoc = existingSnap.docs[0];
-      const existingSession = existingDoc.data() as Session;
+      const existingDoc = mode === "custom"
+        ? existingSnap.docs.find((doc) => arePracticeFiltersEqual((doc.data() as Session).practiceFilters, normalizedPracticeFilters))
+        : existingSnap.docs[0];
+
+      if (existingDoc) {
+        const existingSession = existingDoc.data() as Session;
 
       // Update lastActiveAt and sync rating from user profile
       const updates: Record<string, unknown> = {
@@ -140,28 +174,40 @@ export async function POST(request: NextRequest) {
       }
 
       // If buffer is empty, replenish it
-      if (existingSession.bufferedQuestions.length === 0) {
-        const allQuestions = await getQuestionsByModule(module);
+        if (existingSession.bufferedQuestions.length === 0) {
+        const allQuestions = mode === "custom"
+          ? await getQuestionsByModules(customModules)
+          : await getQuestionsByModule(module);
+        const candidatePool = mode === "custom"
+          ? filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters)
+          : allQuestions;
+
+        if (candidatePool.length === 0) {
+          return NextResponse.json(
+            { error: "No questions match those practice filters" },
+            { status: 400 }
+          );
+        }
 
         let recommendedIds: string[];
         
         if (mode === "review") {
           recommendedIds = recommendReviewQuestions(
-            { candidates: allQuestions, module, questionRepetitions, session: { ...existingSession, currentRating } },
+            { candidates: candidatePool, module, questionRepetitions, session: { ...existingSession, currentRating } },
             10
           );
         } else if (mode === "daily") {
           recommendedIds = recommendDailyChallenge(
-            { candidates: allQuestions, module, dateSeed: new Date().toISOString().split("T")[0], userId },
+            { candidates: candidatePool, module, dateSeed: new Date().toISOString().split("T")[0], userId },
             10
           );
         } else {
           recommendedIds = recommendQuestions(
             {
-              candidates: allQuestions,
+              candidates: candidatePool,
               userRating: currentRating,
               userProfile,
-              session: { ...existingSession, currentRating },
+              session: { ...existingSession, currentRating, practiceFilters: normalizedPracticeFilters },
               skillElos,
               questionRepetitions,
             },
@@ -172,24 +218,47 @@ export async function POST(request: NextRequest) {
         updates.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
       }
 
-      await existingDoc.ref.update(updates);
+        await existingDoc.ref.update({
+          ...updates,
+          targetedSkills: normalizedPracticeFilters.skills.length > 0 ? normalizedPracticeFilters.skills : existingSession.targetedSkills,
+          targetedDomains: normalizedPracticeFilters.domains.length > 0 ? normalizedPracticeFilters.domains : existingSession.targetedDomains || [],
+          difficultyBias: normalizedPracticeFilters.difficulties.length === 1 ? normalizedPracticeFilters.difficulties[0] : existingSession.difficultyBias,
+          practiceFilters: normalizedPracticeFilters,
+        });
 
-      return NextResponse.json({
-        sessionId: existingSession.sessionId,
-        module: existingSession.module,
-        mode: existingSession.mode,
-        currentRating: userProfile ? currentRating : existingSession.currentRating,
-        bufferedQuestions: existingSession.bufferedQuestions,
-        resumed: true,
-      });
+        const nextBufferedQuestions = (updates.bufferedQuestions as Session["bufferedQuestions"] | undefined)
+          ?? existingSession.bufferedQuestions;
+
+        return NextResponse.json({
+          sessionId: existingSession.sessionId,
+          module: existingSession.module,
+          mode: existingSession.mode,
+          currentRating: userProfile ? currentRating : existingSession.currentRating,
+          bufferedQuestions: nextBufferedQuestions,
+          resumed: true,
+        });
+      }
     }
 
     // No existing session — create a new one
-    const allQuestions = await getQuestionsByModule(module);
+    const allQuestions = mode === "custom"
+      ? await getQuestionsByModules(customModules)
+      : await getQuestionsByModule(module);
+    const candidatePool = mode === "custom"
+      ? filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters)
+      : allQuestions;
+
+    if (mode === "custom" && hasPracticeFilters(normalizedPracticeFilters) && candidatePool.length === 0) {
+      return NextResponse.json(
+        { error: "No questions match those practice filters" },
+        { status: 400 }
+      );
+    }
 
     // Mode-specific configuration
     const defaultTimeLimits: Record<SessionMode, number | undefined> = {
       sandbox: undefined,
+      custom: undefined,
       speed_round: 3 * 60 * 1000, // 3 minutes default, matching frontend
       review: undefined,
       daily: undefined,
@@ -219,8 +288,10 @@ export async function POST(request: NextRequest) {
       streak: 0,
       bestStreak: 0,
       bufferedQuestions: [],
-      targetedSkills: [],
-      difficultyBias: null,
+      targetedSkills: normalizedPracticeFilters.skills,
+      targetedDomains: normalizedPracticeFilters.domains,
+      difficultyBias: normalizedPracticeFilters.difficulties.length === 1 ? normalizedPracticeFilters.difficulties[0] : null,
+      practiceFilters: normalizedPracticeFilters,
       ...sessionConfig,
     };
 
@@ -229,19 +300,19 @@ export async function POST(request: NextRequest) {
     
     if (mode === "review") {
       recommendedIds = recommendReviewQuestions(
-        { candidates: allQuestions, module, questionRepetitions, session },
+        { candidates: candidatePool, module, questionRepetitions, session },
         10
       );
     } else if (mode === "daily") {
       recommendedIds = recommendDailyChallenge(
-        { candidates: allQuestions, module, dateSeed: sessionConfig.dateSeed!, userId },
+        { candidates: candidatePool, module, dateSeed: sessionConfig.dateSeed!, userId },
         10
       );
     } else {
       // sandbox and speed_round use the adaptive algorithm
       recommendedIds = recommendQuestions(
         {
-          candidates: allQuestions,
+          candidates: candidatePool,
           userRating: currentRating,
           userProfile,
           session,

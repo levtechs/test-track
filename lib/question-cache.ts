@@ -77,6 +77,12 @@ export async function getQuestionsByModule(
   return questions;
 }
 
+export async function getQuestionsByModules(modules: Module[]): Promise<Question[]> {
+  const uniqueModules = [...new Set(modules)];
+  const questionLists = await Promise.all(uniqueModules.map((module) => getQuestionsByModule(module)));
+  return questionLists.flat();
+}
+
 /** Get a single question by ID */
 export async function getQuestionById(
   questionId: string
