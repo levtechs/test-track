@@ -3,16 +3,147 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { QuestionCard, InfoButton } from "@/components/question/question-card";
 import { RationaleView } from "@/components/question/rationale-view";
-import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, RotateCcw, Calendar } from "lucide-react";
-import type { Module, QuestionClient, Session } from "@/types";
+import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, RotateCcw, Calendar, History } from "lucide-react";
+import type { Difficulty, Module, QuestionClient, Session } from "@/types";
 import type { QueuedQuestion } from "@/types";
-import type { SessionMode } from "@/types/user";
+import type { PracticeFilters, SessionMode } from "@/types/user";
 import { checkAnswerCorrect } from "@/lib/utils";
+import { getSkillsByModule } from "@/lib/skills";
+
+const DEFAULT_PRACTICE_FILTERS: PracticeFilters = {
+  modules: [],
+  difficulties: [],
+  skills: [],
+  domains: [],
+};
+
+const DIFFICULTY_OPTIONS: { value: Difficulty; label: string }[] = [
+  { value: "E", label: "Easy" },
+  { value: "M", label: "Medium" },
+  { value: "H", label: "Hard" },
+];
+
+const FILTER_PILL_CLASS = "h-auto max-w-full min-w-0 shrink-0 px-3 py-2 text-left whitespace-normal break-words";
+const SESSION_POSITIONS_STORAGE_KEY = "sat_session_positions";
+const MAX_RECENT_SESSIONS = 6;
+const COLLAPSED_RECENT_SESSIONS = 3;
+
+type SessionPosition = {
+  module: Module;
+  index: number;
+  mode: SessionMode;
+  updatedAt: number;
+};
+
+type RecentSession = {
+  sessionId: string;
+  module: Module;
+  mode: SessionMode;
+  lastActiveAt: number;
+  answeredCount: number;
+  totalQuestions: number;
+  savedIndex?: number;
+  modules: Module[];
+  customPreview?: string;
+};
+
+function readSessionPositions() {
+  if (typeof window === "undefined") return {} as Record<string, SessionPosition>;
+
+  try {
+    const raw = localStorage.getItem(SESSION_POSITIONS_STORAGE_KEY);
+    if (!raw) return {} as Record<string, SessionPosition>;
+    const parsed = JSON.parse(raw) as Record<string, SessionPosition>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {} as Record<string, SessionPosition>;
+  }
+}
+
+function writeSessionPositions(positions: Record<string, SessionPosition>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SESSION_POSITIONS_STORAGE_KEY, JSON.stringify(positions));
+}
+
+function formatModeLabel(mode: SessionMode) {
+  switch (mode) {
+    case "sandbox":
+      return "Practice";
+    case "custom":
+      return "Custom Practice";
+    case "speed_round":
+      return "Speed Round";
+    case "review":
+      return "Review";
+    case "daily":
+      return "Daily Challenge";
+  }
+}
+
+function formatModuleLabel(module: Module) {
+  return module === "english" ? "English" : "Math";
+}
+
+function formatRelativeTime(timestamp: number) {
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(1, Math.floor(diffMs / 60000));
+
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function formatDifficultyLabel(difficulty: Difficulty) {
+  switch (difficulty) {
+    case "E":
+      return "Easy";
+    case "M":
+      return "Medium";
+    case "H":
+      return "Hard";
+  }
+}
+
+function formatCustomPracticePreview(practiceFilters?: PracticeFilters) {
+  if (!practiceFilters) return undefined;
+
+  const tokens: string[] = [];
+
+  if (practiceFilters.difficulties.length > 0 && practiceFilters.difficulties.length < 3) {
+    tokens.push(...practiceFilters.difficulties.map(formatDifficultyLabel));
+  }
+
+  if (practiceFilters.domains.length > 0) {
+    tokens.push(...practiceFilters.domains);
+  }
+
+  if (practiceFilters.skills.length > 0) {
+    tokens.push(...practiceFilters.skills);
+  }
+
+  if (tokens.length === 0) return "Any mix";
+
+  const preview = tokens.slice(0, 2).join(" • ");
+  const remainingCount = tokens.length - 2;
+  return remainingCount > 0 ? `${preview} +${remainingCount}` : preview;
+}
 
 type PracticeState =
   | { phase: "select" }
@@ -36,6 +167,12 @@ export default function PracticePage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [speedRoundComplete, setSpeedRoundComplete] = useState(false);
+  const [customDialogOpen, setCustomDialogOpen] = useState(false);
+  const [customFilters, setCustomFilters] = useState<PracticeFilters>(DEFAULT_PRACTICE_FILTERS);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [recentSessionsLoading, setRecentSessionsLoading] = useState(false);
+  const [recentSessionsExpanded, setRecentSessionsExpanded] = useState(false);
 
   // Timer countdown for speed round
   useEffect(() => {
@@ -72,6 +209,24 @@ export default function PracticePage() {
       localStorage.setItem("sat_guest_id", guestId);
     }
     return guestId;
+  }, []);
+
+  const saveSessionPosition = useCallback((sessionId: string, module: Module, index: number, mode: SessionMode) => {
+    const nextPositions = {
+      ...readSessionPositions(),
+      [sessionId]: {
+        module,
+        index,
+        mode,
+        updatedAt: Date.now(),
+      },
+    };
+
+    const trimmedEntries = Object.entries(nextPositions)
+      .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+      .slice(0, 20);
+
+    writeSessionPositions(Object.fromEntries(trimmedEntries));
   }, []);
 
   // Fetch question - uses cache, returns instantly if cached
@@ -216,6 +371,65 @@ export default function PracticePage() {
     }
   }, [getIdToken]);
 
+  const loadRecentSessions = useCallback(async () => {
+    if (authLoading) return;
+
+    const activeUserId = user?.uid ?? getGuestId();
+    if (!activeUserId) {
+      setRecentSessions([]);
+      return;
+    }
+
+    setRecentSessionsLoading(true);
+
+    try {
+      const sessionsQuery = query(
+        collection(db, "sessions"),
+        where("userId", "==", activeUserId),
+        orderBy("lastActiveAt", "desc"),
+        limit(MAX_RECENT_SESSIONS)
+      );
+      const snapshot = await getDocs(sessionsQuery);
+      const sessionPositions = readSessionPositions();
+
+      const nextRecentSessions = snapshot.docs
+        .map((sessionDoc) => {
+          const sessionData = sessionDoc.data() as Session;
+          const answeredCount = sessionData.bufferedQuestions.filter((question) => question.answeredAt !== undefined).length;
+          const savedIndex = sessionPositions[sessionData.sessionId]?.index;
+          const modules = sessionData.mode === "custom" && sessionData.practiceFilters?.modules.length
+            ? sessionData.practiceFilters.modules
+            : [sessionData.module];
+
+          return {
+            sessionId: sessionData.sessionId,
+            module: sessionData.module,
+            mode: sessionData.mode,
+            lastActiveAt: sessionData.lastActiveAt,
+            answeredCount,
+            totalQuestions: sessionData.bufferedQuestions.length,
+            savedIndex,
+            modules,
+            customPreview: sessionData.mode === "custom"
+              ? formatCustomPracticePreview(sessionData.practiceFilters)
+              : undefined,
+          } satisfies RecentSession;
+        })
+        .sort((a, b) => {
+          const aSortTime = sessionPositions[a.sessionId]?.updatedAt ?? a.lastActiveAt;
+          const bSortTime = sessionPositions[b.sessionId]?.updatedAt ?? b.lastActiveAt;
+          return bSortTime - aSortTime;
+        });
+
+      setRecentSessions(nextRecentSessions);
+    } catch (err) {
+      console.error("Error loading recent sessions:", err);
+      setRecentSessions([]);
+    } finally {
+      setRecentSessionsLoading(false);
+    }
+  }, [authLoading, user, getGuestId]);
+
   // Handle session update from Firebase
   const handleSessionUpdate = useCallback((sessionData: Session, isInitial = false, providedIndex?: number) => {
     setSession(sessionData);
@@ -239,6 +453,58 @@ export default function PracticePage() {
       loadQuestionAtIndex(idx, sessionData.bufferedQuestions);
     }
   }, [loadQuestionAtIndex]);
+
+  const openExistingSession = useCallback(async (
+    sessionId: string,
+    module: Module,
+    mode: SessionMode,
+    savedIndex?: number
+  ) => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
+    questionCache.current.clear();
+    hasInitializedRef.current = false;
+    setSelectionError(null);
+    setState({ phase: "loading", module, mode });
+    setSession(null);
+    setCurrentQuestion(null);
+    setSelectedAnswer(null);
+    setAnswerResult(null);
+    setShowRationale(false);
+    setCurrentIndex(savedIndex ?? 0);
+    setSpeedRoundComplete(false);
+    setTimeRemaining(null);
+
+    try {
+      const sessionRef = doc(db, "sessions", sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+
+      if (!sessionSnap.exists()) {
+        throw new Error("That session is no longer available");
+      }
+
+      const sessionData = sessionSnap.data() as Session;
+      handleSessionUpdate(sessionData, true, savedIndex);
+      setState({ phase: "active", sessionId, module: sessionData.module, mode: sessionData.mode });
+
+      const unsub = onSnapshot(sessionRef, (snap) => {
+        if (!snap.exists()) {
+          setState({ phase: "select" });
+          setSession(null);
+          return;
+        }
+
+        const nextSessionData = snap.data() as Session;
+        handleSessionUpdate(nextSessionData, false);
+      });
+
+      unsubscribeRef.current = unsub;
+    } catch (err) {
+      console.error("Error opening existing session:", err);
+      setSelectionError(err instanceof Error ? err.message : "Failed to open session");
+      setState({ phase: "select" });
+    }
+  }, [handleSessionUpdate]);
 
   // Resume session (from Firebase for auth users, localStorage for guests)
   useEffect(() => {
@@ -266,28 +532,26 @@ export default function PracticePage() {
         return;
       }
 
-      setState({ phase: "active", sessionId: savedSessionId, module: savedModule, mode: "sandbox" });
-
-      const sessionRef = doc(db, "sessions", savedSessionId);
-      const unsub = onSnapshot(sessionRef, (snap) => {
-        if (!snap.exists()) {
-          setState({ phase: "select" });
-          return;
-        }
-
-        const sessionData = snap.data() as Session;
-        handleSessionUpdate(sessionData, true, savedIndex);
-      });
-
-      unsubscribeRef.current = unsub;
+      await openExistingSession(savedSessionId, savedModule, "sandbox", savedIndex);
     };
 
     resumeSession();
-  }, [user, authLoading, getLastModule, getLastSessionInfo, handleSessionUpdate]);
+  }, [user, authLoading, getLastModule, getLastSessionInfo, openExistingSession]);
+
+  useEffect(() => {
+    if (state.phase !== "select") return;
+    loadRecentSessions();
+  }, [state.phase, loadRecentSessions]);
 
   // Start new session
-  const startSession = useCallback(async (module: Module, mode: SessionMode = "sandbox", timeLimitMs?: number) => {
+  const startSession = useCallback(async (
+    module: Module,
+    mode: SessionMode = "sandbox",
+    timeLimitMs?: number,
+    practiceFilters?: PracticeFilters
+  ) => {
     setState({ phase: "loading", module, mode });
+    setSelectionError(null);
     questionCache.current.clear();
     hasInitializedRef.current = false;
     setCurrentIndex(0);
@@ -305,10 +569,13 @@ export default function PracticePage() {
       const res = await fetch("/api/sessions/start", {
         method: "POST",
         headers,
-        body: JSON.stringify({ module, mode, timeLimitMs }),
+        body: JSON.stringify({ module, mode, timeLimitMs, practiceFilters }),
       });
 
-      if (!res.ok) throw new Error("Failed to start session");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || "Failed to start session");
+      }
 
       const data = await res.json();
       const { sessionId, bufferedQuestions } = data;
@@ -318,10 +585,11 @@ export default function PracticePage() {
       const startIdx = firstUnansweredIdx === -1 ? 0 : firstUnansweredIdx;
 
       // Save to Firebase (auth users) or localStorage (guests), but not for speed_round
-      if (mode !== "speed_round") {
+      if (mode === "sandbox") {
         const isGuest = !user;
         await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
       }
+      saveSessionPosition(sessionId, module, startIdx, mode);
 
       setState({ phase: "active", sessionId, module, mode });
       setCurrentIndex(startIdx);
@@ -342,9 +610,10 @@ export default function PracticePage() {
       unsubscribeRef.current = unsub;
     } catch (err) {
       console.error("Error starting session:", err);
+      setSelectionError(err instanceof Error ? err.message : "Failed to start session");
       setState({ phase: "select" });
     }
-  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo]);
+  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
 
   // Submit answer
   const submitAnswer = useCallback(async (optionId: string) => {
@@ -426,11 +695,14 @@ export default function PracticePage() {
       setTimeout(() => {
         const nextIdx = currentIndex + 1;
         setCurrentIndex(nextIdx);
-        saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
+        saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
+        if (session.mode === "sandbox") {
+          saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
+        }
         loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
       }, 500);
     }
-  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo]);
+  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
 
   // Go to next unanswered
   const goToNextUnanswered = useCallback(() => {
@@ -439,10 +711,10 @@ export default function PracticePage() {
     const nextIdx = session.bufferedQuestions.findIndex((q) => q.answeredAt === undefined);
     if (nextIdx !== -1 && nextIdx !== currentIndex) {
       setCurrentIndex(nextIdx);
-      localStorage.setItem("sat_last_index", nextIdx.toString());
+      saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveSessionPosition]);
 
   // Go back
   const goBack = useCallback(() => {
@@ -450,11 +722,14 @@ export default function PracticePage() {
       const newIdx = currentIndex - 1;
       setCurrentIndex(newIdx);
       if (session) {
-        saveLastSessionInfo(session.module, session.sessionId, newIdx, !user, user?.uid);
+        saveSessionPosition(session.sessionId, session.module, newIdx, session.mode);
+        if (session.mode === "sandbox") {
+          saveLastSessionInfo(session.module, session.sessionId, newIdx, !user, user?.uid);
+        }
         loadQuestionAtIndex(newIdx, session.bufferedQuestions);
       }
     }
-  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user]);
+  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
 
   // Go forward - can only go to first unanswered
   const goForward = useCallback(() => {
@@ -466,10 +741,13 @@ export default function PracticePage() {
     if (currentIndex < maxIndex) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
-      saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
+      saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
+      if (session.mode === "sandbox") {
+        saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
+      }
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
 
   // Cleanup
   useEffect(() => {
@@ -517,11 +795,143 @@ export default function PracticePage() {
       { mode: "daily", label: "Daily Challenge", description: "Same for everyone", icon: Calendar },
     ];
 
+    const selectedFilters = customFilters;
+    const selectedModules: Module[] = selectedFilters.modules.length > 0
+      ? selectedFilters.modules
+      : ["english", "math"];
+    const moduleSkillGroups = selectedModules.map((module) => ({
+      module,
+      label: module === "english" ? "English" : "Math",
+      groups: getSkillsByModule(module),
+    }));
+    const sectionOptions = moduleSkillGroups.flatMap(({ groups }) => groups);
+    const skillGroups = moduleSkillGroups
+      .map(({ module, label, groups }) => ({
+        module,
+        label,
+        groups: groups
+          .map((group) => ({
+            ...group,
+            skills: group.skills.filter(
+              () => selectedFilters.domains.length === 0 || selectedFilters.domains.includes(group.category)
+            ),
+          }))
+          .filter((group) => group.skills.length > 0),
+      }))
+      .filter(({ groups }) => groups.length > 0);
+
+    const toggleValue = (values: string[], value: string) => (
+      values.includes(value)
+        ? values.filter((entry) => entry !== value)
+        : [...values, value]
+    );
+
+    const setPracticeFilters = (nextFilters: PracticeFilters) => {
+      setCustomFilters(nextFilters);
+    };
+    const visibleRecentSessions = recentSessionsExpanded
+      ? recentSessions
+      : recentSessions.slice(0, COLLAPSED_RECENT_SESSIONS);
+    const canToggleRecentSessions = recentSessions.length > COLLAPSED_RECENT_SESSIONS;
+
     return (
       <div className="flex flex-col px-4 pt-8 pb-8 min-h-full">
         <h1 className="mb-6 text-2xl font-bold text-center">Practice</h1>
         
         <div className="space-y-8 w-full max-w-md mx-auto overflow-y-auto">
+          {(recentSessionsLoading || recentSessions.length > 0) && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Previous Sessions</h2>
+              </div>
+
+              {recentSessionsLoading ? (
+                <Card>
+                  <CardHeader className="py-3">
+                    <p className="text-sm text-muted-foreground">Loading your recent sessions...</p>
+                  </CardHeader>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {visibleRecentSessions.map((recentSession) => {
+                    const moduleSummary = recentSession.modules.length > 1
+                      ? "English + Math"
+                      : formatModuleLabel(recentSession.modules[0] || recentSession.module);
+                    const nextQuestionLabel = recentSession.savedIndex !== undefined
+                      ? `Q${recentSession.savedIndex + 1}`
+                      : recentSession.answeredCount < recentSession.totalQuestions
+                        ? `Q${recentSession.answeredCount + 1}`
+                        : "Done";
+
+                    return (
+                      <button
+                        key={recentSession.sessionId}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left transition-all hover:border-primary/50 hover:bg-accent/40"
+                        onClick={() => openExistingSession(
+                          recentSession.sessionId,
+                          recentSession.module,
+                          recentSession.mode,
+                          recentSession.savedIndex
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm leading-tight">
+                            <span className="font-medium">{formatModeLabel(recentSession.mode)}</span>
+                            <span className="text-muted-foreground"> {moduleSummary}</span>
+                          </p>
+                          <p className="truncate text-[11px] leading-tight text-muted-foreground">
+                            {recentSession.mode === "custom" && recentSession.customPreview
+                              ? `${recentSession.customPreview} • ${nextQuestionLabel}`
+                              : nextQuestionLabel}
+                            {` • ${formatRelativeTime(recentSession.lastActiveAt)}`}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-[11px] font-medium text-muted-foreground">
+                          Continue
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {canToggleRecentSessions && (
+                    <div className="flex justify-center pt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setRecentSessionsExpanded((expanded) => !expanded)}
+                      >
+                        {recentSessionsExpanded
+                          ? "Show less"
+                          : `Show ${recentSessions.length - visibleRecentSessions.length} more`}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <Card
+            className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.98]"
+            onClick={() => {
+              setSelectionError(null);
+              setCustomDialogOpen(true);
+            }}
+          >
+            <CardHeader className="flex flex-row items-center gap-4 py-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <BookOpen className="h-6 w-6" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Custom Practice</CardTitle>
+                <p className="text-sm text-muted-foreground">Choose module, section, skill, and difficulty</p>
+              </div>
+            </CardHeader>
+          </Card>
+
           {modules.map(({ module, label, description, icon: ModuleIcon, color }) => (
             <div key={module}>
               <div className="flex items-center gap-2 mb-3">
@@ -534,23 +944,26 @@ export default function PracticePage() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
-                {modes.map(({ mode, label: modeLabel, description: modeDescription, icon: ModeIcon, needsTimeSelect }) => (
-                  <Card
-                    key={`${module}-${mode}`}
-                    className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.98] ${needsTimeSelect ? "relative" : ""}`}
-                    onClick={() => startSession(module, mode, needsTimeSelect ? 3 * 60 * 1000 : undefined)}
-                  >
-                    <CardHeader className="flex flex-col items-center gap-2 py-4 pb-8">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <ModeIcon className="h-6 w-6" />
-                      </div>
-                      <div className="text-center">
-                        <CardTitle className="text-sm">{modeLabel}</CardTitle>
-                        <p className="text-xs text-muted-foreground">{modeDescription}</p>
-                      </div>
-                      {needsTimeSelect && (
-                        <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-2" onClick={(e) => e.stopPropagation()}>
+                <div className="grid grid-cols-2 gap-3">
+                  {modes.map(({ mode, label: modeLabel, description: modeDescription, icon: ModeIcon, needsTimeSelect }) => (
+                    <Card
+                      key={`${module}-${mode}`}
+                      className={`cursor-pointer transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.98] ${needsTimeSelect ? "relative" : ""}`}
+                      onClick={() => {
+                        setSelectionError(null);
+                        startSession(module, mode, needsTimeSelect ? 3 * 60 * 1000 : undefined);
+                      }}
+                    >
+                      <CardHeader className="flex flex-col items-center gap-2 py-4 pb-8">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <ModeIcon className="h-6 w-6" />
+                        </div>
+                        <div className="text-center">
+                          <CardTitle className="text-sm">{modeLabel}</CardTitle>
+                          <p className="text-xs text-muted-foreground">{modeDescription}</p>
+                        </div>
+                        {needsTimeSelect && (
+                          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="outline"
                             size="sm"
@@ -576,11 +989,202 @@ export default function PracticePage() {
           ))}
         </div>
 
+        {selectionError && (
+          <p className="mt-6 text-center text-sm text-red-500">{selectionError}</p>
+        )}
+
         {!user && (
           <p className="mt-6 text-center text-xs text-muted-foreground">
             Sign in to save your progress and compete with others
           </p>
         )}
+
+        <Dialog open={customDialogOpen} onOpenChange={setCustomDialogOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Custom Practice</DialogTitle>
+              <DialogDescription>
+                Pick the question mix for this practice session.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Module</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["english", "math"] as Module[]).map((module) => (
+                    <Button
+                      key={module}
+                      type="button"
+                      variant={selectedFilters.modules.includes(module) ? "default" : "outline"}
+                      onClick={() => {
+                        const nextModules = toggleValue(selectedFilters.modules, module) as Module[];
+                        const activeModules: Module[] = nextModules.length > 0 ? nextModules : ["english", "math"];
+                        const nextModuleSkills = activeModules.flatMap((entry) => getSkillsByModule(entry));
+                        const nextDomains = [...new Set(nextModuleSkills.map((group) => group.category))];
+                        const nextSkills = [...new Set(nextModuleSkills.flatMap((group) => group.skills))];
+
+                        setPracticeFilters({
+                          ...selectedFilters,
+                          modules: nextModules,
+                          domains: selectedFilters.domains.filter((domain) => nextDomains.includes(domain)),
+                          skills: selectedFilters.skills.filter((skill) => nextSkills.includes(skill)),
+                        });
+                      }}
+                    >
+                      {module === "english" ? "English" : "Math"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Difficulty</p>
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant={selectedFilters.difficulties.length === 0 ? "default" : "outline"}
+                      size="sm"
+                      className={FILTER_PILL_CLASS}
+                      onClick={() => setPracticeFilters({ ...selectedFilters, difficulties: [] })}
+                    >
+                      Any
+                    </Button>
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <Button
+                      key={option.label}
+                      type="button"
+                      variant={selectedFilters.difficulties.includes(option.value) ? "default" : "outline"}
+                      size="sm"
+                      className={FILTER_PILL_CLASS}
+                      onClick={() => setPracticeFilters({
+                        ...selectedFilters,
+                        difficulties: toggleValue(selectedFilters.difficulties, option.value) as Difficulty[],
+                      })}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Section</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={selectedFilters.domains.length === 0 ? "default" : "outline"}
+                    size="sm"
+                    className={FILTER_PILL_CLASS}
+                    onClick={() => setPracticeFilters({ ...selectedFilters, domains: [], skills: [] })}
+                  >
+                    Any
+                  </Button>
+                  {sectionOptions.map((section) => (
+                    <Button
+                      key={`${section.module}-${section.category}`}
+                      type="button"
+                      variant={selectedFilters.domains.includes(section.category) ? "default" : "outline"}
+                      size="sm"
+                      className={FILTER_PILL_CLASS}
+                      onClick={() => {
+                        const nextDomains = toggleValue(selectedFilters.domains, section.category);
+                        const nextSkillOptions = [...new Set(
+                          moduleSkillGroups.flatMap(({ groups }) => groups)
+                            .filter((group) => nextDomains.length === 0 || nextDomains.includes(group.category))
+                            .flatMap((group) => group.skills)
+                        )];
+
+                        setPracticeFilters({
+                          ...selectedFilters,
+                          domains: nextDomains,
+                          skills: selectedFilters.skills.filter((skill) => nextSkillOptions.includes(skill)),
+                        });
+                      }}
+                    >
+                      {section.category}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Skill</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={selectedFilters.skills.length === 0 ? "default" : "outline"}
+                    size="sm"
+                    className={FILTER_PILL_CLASS}
+                    onClick={() => setPracticeFilters({ ...selectedFilters, skills: [] })}
+                  >
+                    Any
+                  </Button>
+                </div>
+                <div className="space-y-4">
+                  {skillGroups.map(({ module, label, groups }) => (
+                    <div key={module} className="space-y-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {label}
+                      </div>
+                      <div className="space-y-3">
+                        {groups.map((group) => (
+                          <div key={`${module}-${group.category}`} className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {group.category}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {group.skills.map((skill) => (
+                                <Button
+                                  key={skill}
+                                  type="button"
+                                  variant={selectedFilters.skills.includes(skill) ? "default" : "outline"}
+                                  size="sm"
+                                  className={FILTER_PILL_CLASS}
+                                  onClick={() => setPracticeFilters({
+                                    ...selectedFilters,
+                                    skills: toggleValue(selectedFilters.skills, skill),
+                                  })}
+                                >
+                                  {skill}
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPracticeFilters(DEFAULT_PRACTICE_FILTERS);
+                }}
+              >
+                Reset
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  const nextFilters: PracticeFilters = customFilters.modules.length > 0
+                    ? customFilters
+                    : { ...customFilters, modules: ["english", "math"] as Module[] };
+                  const nextModule: Module = nextFilters.modules[0] || "english";
+                  setCustomDialogOpen(false);
+                  await startSession(nextModule, "custom", undefined, nextFilters);
+                }}
+              >
+                Start Practice
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

@@ -1,3 +1,5 @@
+import type { Difficulty } from "./question";
+
 export interface SkillStat {
   correct: number;
   total: number;
@@ -59,7 +61,14 @@ export interface QueuedQuestion {
   ratingChange?: number;
 }
 
-export type SessionMode = "sandbox" | "speed_round" | "review" | "daily";
+export type SessionMode = "sandbox" | "custom" | "speed_round" | "review" | "daily";
+
+export interface PracticeFilters {
+  modules: ("english" | "math")[];
+  difficulties: Difficulty[];
+  skills: string[];
+  domains: string[];
+}
 
 export interface Session {
   sessionId: string;
@@ -76,7 +85,9 @@ export interface Session {
   bestStreak: number;
   bufferedQuestions: QueuedQuestion[];
   targetedSkills: string[];
+  targetedDomains?: string[];
   difficultyBias: "E" | "M" | "H" | null;
+  practiceFilters?: PracticeFilters;
   timeLimitMs?: number;
   dateSeed?: string;
   expiresAt?: number;

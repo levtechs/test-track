@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { getQuestionsByModule } from "@/lib/question-cache";
+import { getQuestionsByModule, getQuestionsByModules } from "@/lib/question-cache";
 import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
 import { checkAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
+import { filterQuestionsForPractice } from "@/lib/practice-filters";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
 import type { Session, UserProfile, Response } from "@/types";
 import type { SkillElo, QuestionRepetition } from "@/types/user";
@@ -106,7 +107,10 @@ export async function POST(request: NextRequest) {
       const newBestStreak = Math.max(session.bestStreak, newStreak);
 
       // Get fresh questions for recommendation
-      const allQuestions = await getQuestionsByModule(session.module);
+      const allQuestions = session.mode === "custom" && session.practiceFilters?.modules.length
+        ? await getQuestionsByModules(session.practiceFilters.modules)
+        : await getQuestionsByModule(session.module);
+      const candidatePool = filterQuestionsForPractice(allQuestions, session.module, session.practiceFilters);
 
       // Get user profile for skill stats
       let userProfile: UserProfile | null = null;
@@ -157,19 +161,19 @@ export async function POST(request: NextRequest) {
 
         if (mode === "review") {
           nextQuestions = recommendReviewQuestions(
-            { candidates: allQuestions, module: session.module, questionRepetitions, session: updatedSession },
+            { candidates: candidatePool, module: session.module, questionRepetitions, session: updatedSession },
             questionsToAdd
           );
         } else if (mode === "daily") {
           nextQuestions = recommendDailyChallenge(
-            { candidates: allQuestions, module: session.module, dateSeed: (session as Session).dateSeed || "", userId: session.userId },
+            { candidates: candidatePool, module: session.module, dateSeed: (session as Session).dateSeed || "", userId: session.userId },
             questionsToAdd
           );
         } else {
           // sandbox and speed_round use the adaptive algorithm
           nextQuestions = recommendQuestions(
             {
-              candidates: allQuestions,
+              candidates: candidatePool,
               userRating: newUserRating,
               userProfile,
               session: updatedSession,

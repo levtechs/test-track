@@ -194,13 +194,17 @@ export function recommendQuestions(
     session.bufferedQuestions.map((q) => q.questionId)
   );
 
+  const allowedModules = session.mode === "custom" && session.practiceFilters?.modules.length
+    ? session.practiceFilters.modules
+    : [session.module];
+
   let filtered = candidates.filter(
-    (q) => q.module === session.module && !excludeSet.has(q.question_id)
+    (q) => allowedModules.includes(q.module) && !excludeSet.has(q.question_id)
   );
 
   if (filtered.length === 0) {
     filtered = candidates.filter(
-      (q) => q.module === session.module
+      (q) => allowedModules.includes(q.module)
     );
   }
 
