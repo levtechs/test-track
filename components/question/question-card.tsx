@@ -17,6 +17,7 @@ interface QuestionCardProps {
   question: QuestionClient | null;
   selectedAnswer: string | null;
   correctAnswer: string | null;
+  isCorrect: boolean | null;
   disabled: boolean;
   onSelectAnswer: (optionId: string) => void;
   loading?: boolean;
@@ -26,6 +27,7 @@ export function QuestionCard({
   question,
   selectedAnswer,
   correctAnswer,
+  isCorrect,
   disabled,
   onSelectAnswer,
   loading = false,
@@ -92,6 +94,7 @@ export function QuestionCard({
             options={question.answer_options}
             selectedAnswer={selectedAnswer}
             correctAnswer={correctAnswer}
+            isCorrect={isCorrect}
             disabled={disabled}
             onSelect={onSelectAnswer}
             questionType={question.question_type}

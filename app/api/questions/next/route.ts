@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule, getQuestionsByModules } from "@/lib/question-cache";
 import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
-import { checkAnswerCorrect } from "@/lib/utils";
+import { checkAnswerCorrect, checkFibAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { filterQuestionsForPractice } from "@/lib/practice-filters";
 import { verifyAuth, verifySessionOwnership } from "@/lib/api-auth";
@@ -80,7 +80,8 @@ export async function POST(request: NextRequest) {
 
       const questionDoc = questionSnap.docs[0];
       const questionData = questionDoc.data();
-      const correctAnswer = questionData.correct_answer?.[0] || "";
+      const correctAnswers = Array.isArray(questionData.correct_answer) ? questionData.correct_answer : [];
+      const correctAnswer = correctAnswers[0] || "";
 
       // Map selected answer to letter (A, B, C, D)
       const answerIndex = questionData.answer_options?.findIndex(
@@ -91,7 +92,9 @@ export async function POST(request: NextRequest) {
           ? String.fromCharCode(65 + answerIndex)
           : selectedAnswer;
 
-      const isCorrect = checkAnswerCorrect(selectedLetter, correctAnswer);
+      const isCorrect = questionData.question_type === "fib"
+        ? checkFibAnswerCorrect(selectedAnswer, correctAnswers)
+        : checkAnswerCorrect(selectedLetter, correctAnswer);
       const questionElo = questionData.elo || 1100;
 
       // Calculate new global rating

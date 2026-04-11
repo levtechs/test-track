@@ -11,6 +11,7 @@ interface AnswerOptionsProps {
   options: AnswerOption[];
   selectedAnswer: string | null;
   correctAnswer: string | null; // null = not yet submitted
+  isCorrect: boolean | null;
   disabled: boolean;
   onSelect: (optionId: string) => void;
   questionType: QuestionType;
@@ -22,12 +23,15 @@ export function AnswerOptions({
   options,
   selectedAnswer,
   correctAnswer,
+  isCorrect,
   disabled,
   onSelect,
   questionType,
 }: AnswerOptionsProps) {
   const hasSubmitted = correctAnswer !== null;
   const isFIB = questionType === "fib";
+  const successStateClass = "border-[var(--success)] bg-[color:color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]";
+  const destructiveStateClass = "border-[var(--destructive)] bg-[color:color-mix(in_srgb,var(--destructive)_10%,transparent)] text-[var(--destructive)]";
 
   // FIB state
   const [inputValue, setInputValue] = useState("");
@@ -51,8 +55,10 @@ export function AnswerOptions({
       onSelect(trimmed);
     };
 
-    const isCorrect = hasSubmitted && correctAnswer !== null && checkAnswerCorrect(selectedAnswer ?? "", correctAnswer);
-    const isWrong = hasSubmitted && (selectedAnswer ?? "").trim() && !isCorrect;
+    const isFibCorrect = hasSubmitted
+      ? (isCorrect ?? (correctAnswer !== null && checkAnswerCorrect(selectedAnswer ?? "", correctAnswer)))
+      : false;
+    const isWrong = hasSubmitted && (selectedAnswer ?? "").trim() && !isFibCorrect;
 
     return (
       <div className="space-y-2">
@@ -73,9 +79,9 @@ export function AnswerOptions({
               "flex-1 rounded-lg border-2 px-3 py-2 text-sm font-medium transition-all",
               "focus:outline-none focus:ring-2 focus:ring-primary/20",
               !hasSubmitted && !validationError && "border-border bg-card focus:border-primary",
-              !hasSubmitted && validationError && "border-red-500 bg-red-500/10",
-              hasSubmitted && isCorrect && "border-green-500 bg-green-500/10 text-green-700",
-              hasSubmitted && isWrong && "border-red-500 bg-red-500/10 text-red-700",
+              !hasSubmitted && validationError && destructiveStateClass,
+              hasSubmitted && isFibCorrect && successStateClass,
+              hasSubmitted && isWrong && destructiveStateClass,
               disabled && "opacity-60"
             )}
             onKeyDown={(e) => e.key === "Enter" && !hasSubmitted && handleSubmit()}
@@ -93,15 +99,15 @@ export function AnswerOptions({
         </div>
 
         {validationError && !hasSubmitted && (
-          <p className="text-sm text-red-600 font-medium">{validationError}</p>
+          <p className="text-sm font-medium text-[var(--destructive)]">{validationError}</p>
         )}
         
         {hasSubmitted && (
           <div className={cn(
-            "flex items-center gap-2 rounded-lg p-2 text-sm font-medium",
-            isCorrect ? "bg-green-500/10 text-green-700" : "bg-red-500/10 text-red-700"
-          )}>
-            {isCorrect ? (
+            "flex items-center gap-2 rounded-lg border p-2 text-sm font-medium",
+            isFibCorrect ? successStateClass : destructiveStateClass
+           )}>
+             {isFibCorrect ? (
               <>
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Correct!</span>

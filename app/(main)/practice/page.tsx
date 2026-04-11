@@ -20,7 +20,7 @@ import { BookOpen, Calculator, ArrowLeft, ChevronLeft, ChevronRight, Zap, Rotate
 import type { Difficulty, Module, QuestionClient, Session } from "@/types";
 import type { QueuedQuestion } from "@/types";
 import type { PracticeFilters, SessionMode } from "@/types/user";
-import { checkAnswerCorrect } from "@/lib/utils";
+import { checkFibAnswerCorrect } from "@/lib/utils";
 import { getSkillsByModule } from "@/lib/skills";
 
 const DEFAULT_PRACTICE_FILTERS: PracticeFilters = {
@@ -631,8 +631,7 @@ export default function PracticePage() {
 
     if (isFIB) {
       const userAnswer = optionId.trim();
-      const correctAnswer = currentQuestion.correct_answer[0];
-      isCorrect = checkAnswerCorrect(userAnswer, correctAnswer);
+      isCorrect = checkFibAnswerCorrect(userAnswer, currentQuestion.correct_answer);
       correctAnswerDisplay = currentQuestion.correct_answer[0];
     } else {
       const selectedIndex = currentQuestion.answer_options.findIndex((opt) => opt.id === optionId);
@@ -1347,6 +1346,7 @@ export default function PracticePage() {
             question={currentQuestion}
             selectedAnswer={selectedAnswer}
             correctAnswer={answerResult?.correctAnswer || null}
+            isCorrect={answerResult?.isCorrect ?? null}
             disabled={!!answerResult}
             onSelectAnswer={submitAnswer}
             loading={false}
