@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
     const customModules = normalizedPracticeFilters.modules.length > 0
       ? normalizedPracticeFilters.modules
       : [module];
+    const sessionModule = mode === "custom"
+      ? customModules[0] || module
+      : module;
 
     // For speed_round, always start fresh - delete any existing speed_round sessions
     if (mode === "speed_round") {
@@ -63,13 +66,20 @@ export async function POST(request: NextRequest) {
 
     // Look for an existing session for this user + module + mode.
     // Sandbox sessions also need the same filter set to resume correctly.
-    const existingSnap = await adminDb
-      .collection("sessions")
-      .where("userId", "==", userId)
-      .where("module", "==", module)
-      .where("mode", "==", mode)
-      .limit(mode === "custom" ? 10 : 1)
-      .get();
+    const existingSnap = await (mode === "custom"
+      ? adminDb
+          .collection("sessions")
+          .where("userId", "==", userId)
+          .where("mode", "==", mode)
+          .limit(50)
+          .get()
+      : adminDb
+          .collection("sessions")
+          .where("userId", "==", userId)
+          .where("module", "==", sessionModule)
+          .where("mode", "==", mode)
+          .limit(1)
+          .get());
 
     // If no session with mode found and mode is sandbox, look for session with no mode
     if (existingSnap.empty && mode === "sandbox") {
@@ -108,8 +118,8 @@ export async function POST(request: NextRequest) {
 
         // If buffer is empty, replenish it
         if (existingSession.bufferedQuestions.length === 0) {
-          const allQuestions = await getQuestionsByModule(module);
-          const candidatePool = filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters);
+          const allQuestions = await getQuestionsByModule(sessionModule);
+          const candidatePool = filterQuestionsForPractice(allQuestions, sessionModule, normalizedPracticeFilters);
 
           if (candidatePool.length === 0) {
             return NextResponse.json(
@@ -177,9 +187,9 @@ export async function POST(request: NextRequest) {
         if (existingSession.bufferedQuestions.length === 0) {
         const allQuestions = mode === "custom"
           ? await getQuestionsByModules(customModules)
-          : await getQuestionsByModule(module);
+          : await getQuestionsByModule(sessionModule);
         const candidatePool = mode === "custom"
-          ? filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters)
+          ? filterQuestionsForPractice(allQuestions, sessionModule, normalizedPracticeFilters)
           : allQuestions;
 
         if (candidatePool.length === 0) {
@@ -198,7 +208,7 @@ export async function POST(request: NextRequest) {
           );
         } else if (mode === "daily") {
           recommendedIds = recommendDailyChallenge(
-            { candidates: candidatePool, module, dateSeed: new Date().toISOString().split("T")[0], userId },
+            { candidates: candidatePool, module: sessionModule, dateSeed: existingSession.dateSeed || new Date().toISOString().split("T")[0], userId },
             10
           );
         } else {
@@ -243,9 +253,9 @@ export async function POST(request: NextRequest) {
     // No existing session — create a new one
     const allQuestions = mode === "custom"
       ? await getQuestionsByModules(customModules)
-      : await getQuestionsByModule(module);
+      : await getQuestionsByModule(sessionModule);
     const candidatePool = mode === "custom"
-      ? filterQuestionsForPractice(allQuestions, module, normalizedPracticeFilters)
+      ? filterQuestionsForPractice(allQuestions, sessionModule, normalizedPracticeFilters)
       : allQuestions;
 
     if (mode === "custom" && hasPracticeFilters(normalizedPracticeFilters) && candidatePool.length === 0) {
@@ -277,7 +287,7 @@ export async function POST(request: NextRequest) {
     const session: Session = {
       sessionId: sessionRef.id,
       userId,
-      module,
+      module: sessionModule,
       mode,
       startedAt: Date.now(),
       lastActiveAt: Date.now(),
@@ -300,12 +310,12 @@ export async function POST(request: NextRequest) {
     
     if (mode === "review") {
       recommendedIds = recommendReviewQuestions(
-        { candidates: candidatePool, module, questionRepetitions, session },
+        { candidates: candidatePool, module: sessionModule, questionRepetitions, session },
         10
       );
     } else if (mode === "daily") {
       recommendedIds = recommendDailyChallenge(
-        { candidates: candidatePool, module, dateSeed: sessionConfig.dateSeed!, userId },
+        { candidates: candidatePool, module: sessionModule, dateSeed: sessionConfig.dateSeed!, userId },
         10
       );
     } else {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -383,7 +383,12 @@ export default function PracticePage() {
     setRecentSessionsLoading(true);
 
     try {
-      const sessionsQuery = query(collection(db, "sessions"), where("userId", "==", activeUserId));
+      const sessionsQuery = query(
+        collection(db, "sessions"),
+        where("userId", "==", activeUserId),
+        orderBy("lastActiveAt", "desc"),
+        limit(MAX_RECENT_SESSIONS)
+      );
       const snapshot = await getDocs(sessionsQuery);
       const sessionPositions = readSessionPositions();
 
@@ -414,8 +419,7 @@ export default function PracticePage() {
           const aSortTime = sessionPositions[a.sessionId]?.updatedAt ?? a.lastActiveAt;
           const bSortTime = sessionPositions[b.sessionId]?.updatedAt ?? b.lastActiveAt;
           return bSortTime - aSortTime;
-        })
-        .slice(0, MAX_RECENT_SESSIONS);
+        });
 
       setRecentSessions(nextRecentSessions);
     } catch (err) {
@@ -707,7 +711,6 @@ export default function PracticePage() {
     const nextIdx = session.bufferedQuestions.findIndex((q) => q.answeredAt === undefined);
     if (nextIdx !== -1 && nextIdx !== currentIndex) {
       setCurrentIndex(nextIdx);
-      localStorage.setItem("sat_last_index", nextIdx.toString());
       saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
