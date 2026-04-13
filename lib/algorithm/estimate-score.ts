@@ -15,15 +15,10 @@ const SAT_CATEGORY_WEIGHTS: Record<string, number> = {
 const CONFIDENCE_QUESTIONS_TARGET = 100;
 
 function eloToScaledScore(elo: number): number {
-  const minElo = 700;
-  const maxElo = 1500;
-  const minScore = 200;
-  const maxScore = 800;
+  const estimatedScore = elo / 2;
+  const roundedToNearestTen = Math.round(estimatedScore / 10) * 10;
 
-  const normalized = Math.max(0, Math.min(1, (elo - minElo) / (maxElo - minElo)));
-  const scaled = minScore + (maxScore - minScore) * Math.pow(normalized, 0.8);
-
-  return Math.round(Math.max(200, Math.min(800, scaled)));
+  return Math.max(200, Math.min(800, roundedToNearestTen));
 }
 
 function calculateSkillElo(
@@ -54,58 +49,36 @@ function calculateSkillElo(
   return { elo: avgElo, questionCount: totalQuestions, weight };
 }
 
-function calculateModuleConfidence(
-  skillElos: Record<string, SkillElo>,
-  module: "english" | "math"
-): number {
-  const hierarchies = getSkillsByModule(module);
-  let totalQuestions = 0;
-
-  for (const group of hierarchies) {
-    for (const skill of group.skills) {
-      totalQuestions += skillElos[skill]?.questionCount ?? 0;
-    }
-  }
-
-  return Math.min(1, totalQuestions / CONFIDENCE_QUESTIONS_TARGET);
-}
-
 export function estimateSectionScore(
   skillElos: Record<string, SkillElo> | undefined,
-  module: "english" | "math"
+  module: "english" | "math",
+  moduleRating?: number
 ): EstimatedScore {
+  const ratingForEstimate = moduleRating ?? 1000;
+
   if (!skillElos || Object.keys(skillElos).length === 0) {
     return {
-      score: 500,
+      score: eloToScaledScore(ratingForEstimate),
       confidence: 0.1,
-      rawAccuracy: 0.5,
+      rawAccuracy: Math.round((1 / (1 + Math.pow(10, (1100 - ratingForEstimate) / 400))) * 100) / 100,
       calculatedAt: Date.now(),
     };
   }
 
   const hierarchies = getSkillsByModule(module);
-  let weightedElo = 0;
-  let totalWeight = 0;
   let totalQuestions = 0;
 
   for (const group of hierarchies) {
-    const { elo, questionCount, weight } = calculateSkillElo(
+    const { questionCount } = calculateSkillElo(
       skillElos,
       group.category
     );
-
-    const skillConfidence = Math.min(1, questionCount / 20);
-    const effectiveWeight = weight * (0.5 + 0.5 * skillConfidence);
-
-    weightedElo += elo * effectiveWeight;
-    totalWeight += effectiveWeight;
     totalQuestions += questionCount;
   }
 
-  const avgElo = totalWeight > 0 ? weightedElo / totalWeight : 1100;
-  const score = eloToScaledScore(avgElo);
+  const score = eloToScaledScore(ratingForEstimate);
   const confidence = Math.min(1, totalQuestions / CONFIDENCE_QUESTIONS_TARGET);
-  const rawAccuracy = 1 / (1 + Math.pow(10, (1100 - avgElo) / 400));
+  const rawAccuracy = 1 / (1 + Math.pow(10, (1100 - ratingForEstimate) / 400));
 
   return {
     score,
@@ -116,10 +89,11 @@ export function estimateSectionScore(
 }
 
 export function estimateTotalScore(
-  skillElos: Record<string, SkillElo> | undefined
+  skillElos: Record<string, SkillElo> | undefined,
+  ratings?: { english?: number; math?: number }
 ): { total: number; english: EstimatedScore; math: EstimatedScore } {
-  const english = estimateSectionScore(skillElos, "english");
-  const math = estimateSectionScore(skillElos, "math");
+  const english = estimateSectionScore(skillElos, "english", ratings?.english);
+  const math = estimateSectionScore(skillElos, "math", ratings?.math);
   const total = english.score + math.score;
 
   return { total, english, math };

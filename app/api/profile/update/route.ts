@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
 
     const { streak, lastDate } = calculateDayStreak(responses, userProfile.lastActiveDate || null, clientDate);
 
-    const estimatedEnglish = estimateSectionScore(skillElos, "english");
-    const estimatedMath = estimateSectionScore(skillElos, "math");
+    const estimatedEnglish = estimateSectionScore(skillElos, "english", userProfile.englishRating);
+    const estimatedMath = estimateSectionScore(skillElos, "math", userProfile.mathRating);
     const totalScore = estimatedEnglish.score + estimatedMath.score;
 
     await adminDb.collection("users").doc(userId).update({
