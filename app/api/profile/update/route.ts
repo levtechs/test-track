@@ -77,14 +77,8 @@ export async function POST(request: NextRequest) {
     ]);
 
     const responses = responsesSnap.docs.map(d => d.data() as { answeredAt: number; isCorrect: boolean });
-    
-    console.log("User responses dates:", responses.filter(r => r.isCorrect).map(r => ({
-      answeredAt: r.answeredAt,
-      date: getDateString(r.answeredAt)
-    })));
-    
+
     const { streak, lastDate } = calculateDayStreak(responses, userProfile.lastActiveDate || null, clientDate);
-    console.log("Calculated streak:", streak, "lastDate:", lastDate);
 
     const estimatedEnglish = estimateSectionScore(skillElos, "english");
     const estimatedMath = estimateSectionScore(skillElos, "math");
