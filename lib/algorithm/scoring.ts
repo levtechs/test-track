@@ -1,4 +1,4 @@
-import type { Question, UserProfile, Session, SkillElo, QuestionRepetition } from "@/types";
+import type { Question, UserProfile, Session, SkillElo, QuestionRepetition, QueuedQuestion, SuggestionReason } from "@/types";
 import {
   W_DUE,
   W_SKILL_MATCH,
@@ -46,8 +46,56 @@ export interface ScoredQuestion {
   score: number;
 }
 
+const CHALLENGE_MARGIN = 0.15;
+
 function expected(ratingA: number, ratingB: number): number {
   return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+}
+
+function deriveAdaptiveSuggestionReason(
+  question: Question,
+  userRating: number,
+  skillElos: Record<string, SkillElo>,
+  questionRepetitions: Record<string, QuestionRepetition>,
+  sessionQuestionCount: number,
+  streak: number,
+  correctCount: number,
+  now: number
+): SuggestionReason {
+  const repetition = questionRepetitions[question.question_id];
+
+  if (repetition && repetition.nextReviewAt <= now) {
+    return "review";
+  }
+
+  if (sessionQuestionCount < CALIBRATION_SEQUENCE.length) {
+    return "probing";
+  }
+
+  const questionElo = question.elo ?? 1100;
+  const targetSuccessRate = getTargetSuccessRate(streak, correctCount, sessionQuestionCount);
+  const expectedSuccess = expected(userRating, questionElo);
+  const skillMatchScore = calcSkillMatchScore(question.skill, skillElos, questionElo, targetSuccessRate);
+  const difficultyScore = calcDifficultyScore(userRating, questionElo);
+  const exploreScore = calcExploreScore(question.question_id, questionRepetitions);
+  const isUnseen = !repetition || repetition.repetitions === 0;
+
+  if (isUnseen && exploreScore >= skillMatchScore && exploreScore >= difficultyScore) {
+    return "novelty";
+  }
+
+  if (expectedSuccess < targetSuccessRate && expectedSuccess >= targetSuccessRate - CHALLENGE_MARGIN) {
+    return "challenge";
+  }
+
+  return "fit";
+}
+
+function toQueuedQuestions(questionIds: string[], getReason: (questionId: string) => SuggestionReason): QueuedQuestion[] {
+  return questionIds.map((questionId) => ({
+    questionId,
+    reason: getReason(questionId),
+  }));
 }
 
 export function getTargetSuccessRate(
@@ -258,6 +306,33 @@ export function recommendQuestions(
   return results;
 }
 
+export function buildAdaptiveQueuedQuestions(
+  input: RecommendationInput,
+  count: number = 1
+): QueuedQuestion[] {
+  const questionIds = recommendQuestions(input, count);
+  const now = Date.now();
+  const questionMap = new Map(input.candidates.map((question) => [question.question_id, question]));
+
+  return toQueuedQuestions(questionIds, (questionId) => {
+    const question = questionMap.get(questionId);
+    if (!question) {
+      return "fit";
+    }
+
+    return deriveAdaptiveSuggestionReason(
+      question,
+      input.userRating,
+      input.skillElos,
+      input.questionRepetitions,
+      input.session.questionCount,
+      input.session.streak,
+      input.session.correctCount,
+      now
+    );
+  });
+}
+
 export interface ReviewInput {
   candidates: Question[];
   module: "english" | "math";
@@ -312,6 +387,10 @@ export function recommendReviewQuestions(input: ReviewInput, count: number = 10)
   return scored.slice(0, count).map((s) => s.questionId);
 }
 
+export function buildReviewQueuedQuestions(input: ReviewInput, count: number = 10): QueuedQuestion[] {
+  return toQueuedQuestions(recommendReviewQuestions(input, count), () => "review");
+}
+
 export interface DailyInput {
   candidates: Question[];
   module: "english" | "math";
@@ -339,6 +418,10 @@ export function recommendDailyChallenge(input: DailyInput, count: number = 10): 
   }
 
   return shuffled.slice(0, count).map((q) => q.question_id);
+}
+
+export function buildDailyQueuedQuestions(input: DailyInput, count: number = 10): QueuedQuestion[] {
+  return toQueuedQuestions(recommendDailyChallenge(input, count), () => "daily");
 }
 
 function simpleHash(str: string): number {

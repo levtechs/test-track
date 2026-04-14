@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Info } from "lucide-react";
-import type { QuestionClient } from "@/types";
+import type { QuestionClient, SuggestionReason } from "@/types";
 
 interface QuestionCardProps {
   question: QuestionClient | null;
@@ -111,9 +111,19 @@ interface InfoButtonProps {
   difficulty: string;
   questionId: string;
   elo?: number;
+  reason?: SuggestionReason;
 }
 
-export function InfoButton({ skill, domain, difficulty, questionId, elo }: InfoButtonProps) {
+const suggestionReasonLabels: Record<SuggestionReason, string> = {
+  review: "Review",
+  probing: "Probing",
+  novelty: "Novelty",
+  challenge: "Challenge",
+  fit: "Fit",
+  daily: "Daily Challenge",
+};
+
+export function InfoButton({ skill, domain, difficulty, questionId, elo, reason }: InfoButtonProps) {
   const difficultyLabel = difficulty === "E" ? "Easy" : difficulty === "M" ? "Medium" : "Hard";
   
   return (
@@ -124,12 +134,13 @@ export function InfoButton({ skill, domain, difficulty, questionId, elo }: InfoB
           <span className="sr-only">Question Details</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-48" align="end">
+      <PopoverContent className="w-52" align="end">
         <div className="flex flex-col gap-2 text-sm">
           <div className="font-medium">{skill}</div>
           <div className="text-muted-foreground text-xs">
             <div>{domain}</div>
             <div>Difficulty: {difficultyLabel}</div>
+            {reason && <div>Suggested for: {suggestionReasonLabels[reason]}</div>}
             {elo && <div>Elo: {elo}</div>}
             <div className="truncate">ID: {questionId}</div>
           </div>

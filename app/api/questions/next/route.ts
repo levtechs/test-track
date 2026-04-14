@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule, getQuestionsByModules } from "@/lib/question-cache";
-import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
+import { buildAdaptiveQueuedQuestions, buildReviewQueuedQuestions, buildDailyQueuedQuestions } from "@/lib/algorithm";
 import { checkAnswerCorrect, checkFibAnswerCorrect } from "@/lib/utils";
 import { updateUserRating, updateQuestionElo, ratingField, updateSkillElo, updateRepetition } from "@/lib/algorithm/rating";
 import { filterQuestionsForPractice } from "@/lib/practice-filters";
@@ -144,6 +144,7 @@ export async function POST(request: NextRequest) {
       const newBuffer = [...session.bufferedQuestions];
       newBuffer[firstUnansweredIndex] = {
         questionId,
+        ...(firstUnanswered.reason ? { reason: firstUnanswered.reason } : {}),
         selectedAnswer,
         isCorrect,
         correctAnswer,
@@ -159,22 +160,22 @@ export async function POST(request: NextRequest) {
       if (unansweredCount < 3) {
         const questionsToAdd = 3 - unansweredCount;
         
-        let nextQuestions: string[];
+        let nextQuestions: Session["bufferedQuestions"];
         const mode = (session as Session).mode || "sandbox";
 
         if (mode === "review") {
-          nextQuestions = recommendReviewQuestions(
+          nextQuestions = buildReviewQueuedQuestions(
             { candidates: candidatePool, module: session.module, questionRepetitions, session: updatedSession },
             questionsToAdd
           );
         } else if (mode === "daily") {
-          nextQuestions = recommendDailyChallenge(
+          nextQuestions = buildDailyQueuedQuestions(
             { candidates: candidatePool, module: session.module, dateSeed: (session as Session).dateSeed || "", userId: session.userId },
             questionsToAdd
           );
         } else {
           // sandbox and speed_round use the adaptive algorithm
-          nextQuestions = recommendQuestions(
+          nextQuestions = buildAdaptiveQueuedQuestions(
             {
               candidates: candidatePool,
               userRating: newUserRating,
@@ -189,7 +190,7 @@ export async function POST(request: NextRequest) {
 
         finalBuffer = [
           ...newBuffer,
-          ...nextQuestions.map((id: string) => ({ questionId: id })),
+          ...nextQuestions,
         ];
       }
 

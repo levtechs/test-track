@@ -145,6 +145,26 @@ function formatCustomPracticePreview(practiceFilters?: PracticeFilters) {
   return remainingCount > 0 ? `${preview} +${remainingCount}` : preview;
 }
 
+function resolveDisplayIndex(bufferedQuestions: QueuedQuestion[], preferredIndex?: number): number {
+  if (bufferedQuestions.length === 0) return 0;
+
+  const firstUnansweredIdx = bufferedQuestions.findIndex((q) => q.answeredAt === undefined);
+
+  if (preferredIndex !== undefined) {
+    const boundedIndex = Math.min(preferredIndex, bufferedQuestions.length - 1);
+    const preferredQuestion = bufferedQuestions[boundedIndex];
+
+    // Only resume on a later unanswered card when it is actually the next one due.
+    if (preferredQuestion?.answeredAt === undefined && firstUnansweredIdx !== -1 && boundedIndex !== firstUnansweredIdx) {
+      return firstUnansweredIdx;
+    }
+
+    return boundedIndex;
+  }
+
+  return firstUnansweredIdx === -1 ? bufferedQuestions.length - 1 : firstUnansweredIdx;
+}
+
 type PracticeState =
   | { phase: "select" }
   | { phase: "loading"; module: Module; mode: SessionMode }
@@ -437,17 +457,7 @@ export default function PracticePage() {
     // On initial load, figure out which index to show
     if (isInitial && !hasInitializedRef.current) {
       hasInitializedRef.current = true;
-      
-      let idx: number;
-
-      // If we have a saved index, use it (even if already answered - that's where user left off)
-      if (providedIndex !== undefined) {
-        idx = Math.min(providedIndex, sessionData.bufferedQuestions.length - 1);
-      } else {
-        // No saved index - find first unanswered
-        idx = sessionData.bufferedQuestions.findIndex((q: QueuedQuestion) => q.answeredAt === undefined);
-        if (idx === -1) idx = sessionData.bufferedQuestions.length - 1;
-      }
+      const idx = resolveDisplayIndex(sessionData.bufferedQuestions, providedIndex);
 
       setCurrentIndex(idx);
       loadQuestionAtIndex(idx, sessionData.bufferedQuestions);
@@ -621,9 +631,17 @@ export default function PracticePage() {
 
     const activeSessionId = session.sessionId;
     const currentQ = session.bufferedQuestions[currentIndex];
+    const firstUnansweredIndex = session.bufferedQuestions.findIndex((q) => q.answeredAt === undefined);
 
-    // Check if this is the first unanswered question
-    if (currentQ.answeredAt !== undefined) return;
+    // Server only accepts the earliest unanswered card.
+    if (currentQ.answeredAt !== undefined || firstUnansweredIndex === -1) return;
+
+    if (currentIndex !== firstUnansweredIndex) {
+      setCurrentIndex(firstUnansweredIndex);
+      saveSessionPosition(session.sessionId, session.module, firstUnansweredIndex, session.mode);
+      loadQuestionAtIndex(firstUnansweredIndex, session.bufferedQuestions);
+      return;
+    }
 
     const isFIB = currentQuestion.question_type === "fib";
     let isCorrect: boolean;
@@ -1201,6 +1219,8 @@ export default function PracticePage() {
     );
   }
 
+  const currentQueuedQuestion = session?.bufferedQuestions[currentIndex];
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col px-2 sm:px-4 pb-3 max-w-3xl mx-auto">
       {session && (
@@ -1270,9 +1290,8 @@ export default function PracticePage() {
             <span className="font-mono font-semibold">{session.currentRating}</span>
 
             {(() => {
-              const currentQ = session?.bufferedQuestions[currentIndex];
-              if (currentQ?.ratingChange !== undefined) {
-                const change = currentQ.ratingChange;
+              if (currentQueuedQuestion?.ratingChange !== undefined) {
+                const change = currentQueuedQuestion.ratingChange;
                 return (
                   <div className="flex items-center gap-1 text-xs font-semibold">
                     <span className={change >= 0 ? "text-green-500" : "text-red-500"}>
@@ -1303,6 +1322,7 @@ export default function PracticePage() {
                 difficulty={currentQuestion.difficulty}
                 questionId={currentQuestion.question_id}
                 elo={currentQuestion.elo}
+                reason={currentQueuedQuestion?.reason}
               />
             )}
           </div>

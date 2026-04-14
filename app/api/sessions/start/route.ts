@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { getQuestionsByModule, getQuestionsByModules } from "@/lib/question-cache";
-import { recommendQuestions, recommendReviewQuestions, recommendDailyChallenge } from "@/lib/algorithm";
+import { buildAdaptiveQueuedQuestions, buildReviewQueuedQuestions, buildDailyQueuedQuestions } from "@/lib/algorithm";
 import { ratingField } from "@/lib/algorithm/rating";
 import { verifyAuth } from "@/lib/api-auth";
 import { arePracticeFiltersEqual, filterQuestionsForPractice, hasPracticeFilters, normalizePracticeFilters } from "@/lib/practice-filters";
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          const recommendedIds = recommendQuestions(
+          const queuedQuestions = buildAdaptiveQueuedQuestions(
             {
               candidates: candidatePool,
               userRating: currentRating,
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
             },
             3
           );
-          updates.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
+          updates.bufferedQuestions = queuedQuestions;
         }
 
         await existingDoc.ref.update({
@@ -199,20 +199,20 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        let recommendedIds: string[];
+        let queuedQuestions: Session["bufferedQuestions"];
         
         if (mode === "review") {
-          recommendedIds = recommendReviewQuestions(
+          queuedQuestions = buildReviewQueuedQuestions(
             { candidates: candidatePool, module, questionRepetitions, session: { ...existingSession, currentRating } },
             10
           );
         } else if (mode === "daily") {
-          recommendedIds = recommendDailyChallenge(
+          queuedQuestions = buildDailyQueuedQuestions(
             { candidates: candidatePool, module: sessionModule, dateSeed: existingSession.dateSeed || new Date().toISOString().split("T")[0], userId },
             10
           );
         } else {
-          recommendedIds = recommendQuestions(
+          queuedQuestions = buildAdaptiveQueuedQuestions(
             {
               candidates: candidatePool,
               userRating: currentRating,
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        updates.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
+        updates.bufferedQuestions = queuedQuestions;
       }
 
         await existingDoc.ref.update({
@@ -306,21 +306,21 @@ export async function POST(request: NextRequest) {
     };
 
     // Recommend questions based on mode
-    let recommendedIds: string[];
+    let queuedQuestions: Session["bufferedQuestions"];
     
     if (mode === "review") {
-      recommendedIds = recommendReviewQuestions(
+      queuedQuestions = buildReviewQueuedQuestions(
         { candidates: candidatePool, module: sessionModule, questionRepetitions, session },
         10
       );
     } else if (mode === "daily") {
-      recommendedIds = recommendDailyChallenge(
+      queuedQuestions = buildDailyQueuedQuestions(
         { candidates: candidatePool, module: sessionModule, dateSeed: sessionConfig.dateSeed!, userId },
         10
       );
     } else {
       // sandbox and speed_round use the adaptive algorithm
-      recommendedIds = recommendQuestions(
+      queuedQuestions = buildAdaptiveQueuedQuestions(
         {
           candidates: candidatePool,
           userRating: currentRating,
@@ -333,7 +333,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    session.bufferedQuestions = recommendedIds.map((id: string) => ({ questionId: id }));
+    session.bufferedQuestions = queuedQuestions;
 
     await sessionRef.set(session);
 

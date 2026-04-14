@@ -1,2 +1,2 @@
 export type { Question, QuestionClient, AnswerOption, QuestionType, Module, Difficulty } from "./question";
-export type { UserProfile, SkillStat, SkillElo, QuestionRepetition, Session, Response, QueuedQuestion, EstimatedScore, PracticeFilters } from "./user";
+export type { UserProfile, SkillStat, SkillElo, QuestionRepetition, Session, Response, QueuedQuestion, EstimatedScore, PracticeFilters, SuggestionReason } from "./user";

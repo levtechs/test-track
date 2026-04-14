@@ -20,6 +20,8 @@ export interface QuestionRepetition {
   nextReviewAt: number;
 }
 
+export type SuggestionReason = "review" | "probing" | "novelty" | "challenge" | "fit" | "daily";
+
 export interface EstimatedScore {
   score: number;
   confidence: number;
@@ -53,6 +55,7 @@ export interface UserProfile {
 
 export interface QueuedQuestion {
   questionId: string;
+  reason?: SuggestionReason;
   answeredAt?: number;
   selectedAnswer?: string;
   isCorrect?: boolean;
