@@ -1222,7 +1222,7 @@ export default function PracticePage() {
   const currentQueuedQuestion = session?.bufferedQuestions[currentIndex];
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col px-2 sm:px-4 pb-3 max-w-3xl mx-auto">
+    <div className="mx-auto flex h-full min-h-0 max-w-3xl flex-col px-2 pb-3 sm:px-4">
       {session && (
         <div className="flex-none flex items-center justify-between gap-2 py-2 text-sm">
           <Button

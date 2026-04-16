@@ -329,10 +329,14 @@
   margin-bottom: 0;
 }
 
-/* Force light mode for diagrams/figures */
-.question-content figure,
+.question-content figure {
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .question-content svg {
-  color-scheme: light;
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 .question-content strong,
 .question-content b {
