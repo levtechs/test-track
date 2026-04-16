@@ -334,7 +334,6 @@
 
 .question-content figure {
   max-width: 100%;
-  overflow-x: hidden;
 }
 .question-content svg {
   display: block;
