@@ -267,31 +267,39 @@ function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
   }
 }
 
+function wrapTable(table: HTMLTableElement, doc: Document) {
+  const parent = table.parentElement;
+  if (parent?.classList.contains("question-table-wrapper")) {
+    return;
+  }
+
+  const caption = table.querySelector(":scope > caption");
+  const wrapper = doc.createElement("div");
+  wrapper.className = "question-table-wrapper";
+
+  if (caption) {
+    const captionBlock = doc.createElement("div");
+    captionBlock.className = "question-table-caption";
+    captionBlock.innerHTML = caption.innerHTML;
+    caption.remove();
+    table.replaceWith(captionBlock);
+    captionBlock.insertAdjacentElement("afterend", wrapper);
+  } else {
+    table.replaceWith(wrapper);
+  }
+
+  wrapper.appendChild(table);
+}
+
 function wrapTables(container: HTMLElement) {
   for (const table of container.querySelectorAll<HTMLTableElement>("table")) {
-    const parent = table.parentElement;
-    if (parent?.classList.contains("question-table-wrapper")) {
-      continue;
-    }
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "question-table-wrapper";
-    table.replaceWith(wrapper);
-    wrapper.appendChild(table);
+    wrapTable(table, document);
   }
 }
 
 function wrapTablesInDocument(doc: Document) {
   for (const table of doc.querySelectorAll<HTMLTableElement>("table")) {
-    const parent = table.parentElement;
-    if (parent?.classList.contains("question-table-wrapper")) {
-      continue;
-    }
-
-    const wrapper = doc.createElement("div");
-    wrapper.className = "question-table-wrapper";
-    table.replaceWith(wrapper);
-    wrapper.appendChild(table);
+    wrapTable(table, doc);
   }
 }
 
