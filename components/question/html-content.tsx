@@ -13,6 +13,7 @@ interface RgbColor {
   r: number;
   g: number;
   b: number;
+  a?: number;
 }
 
 interface HslColor {
@@ -25,6 +26,25 @@ const SVG_COLOR_ATTRIBUTES = ["fill", "stroke", "stop-color", "color"] as const;
 const SVG_STYLE_PROPERTIES = new Set(["fill", "stroke", "stop-color", "color"]);
 const SVG_NON_SCALING_VALUES = new Set(["none", "transparent", "currentcolor", "inherit", "unset"]);
 const resolvedColorCache = new Map<string, RgbColor | null>();
+let colorProbe: HTMLSpanElement | null = null;
+
+function getColorProbe(): HTMLSpanElement {
+  if (colorProbe?.isConnected) {
+    return colorProbe;
+  }
+
+  colorProbe = document.createElement("span");
+  colorProbe.setAttribute("aria-hidden", "true");
+  colorProbe.style.position = "fixed";
+  colorProbe.style.width = "0";
+  colorProbe.style.height = "0";
+  colorProbe.style.overflow = "hidden";
+  colorProbe.style.opacity = "0";
+  colorProbe.style.pointerEvents = "none";
+  colorProbe.style.inset = "0";
+  document.body.appendChild(colorProbe);
+  return colorProbe;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -32,8 +52,12 @@ function clamp(value: number, min: number, max: number): number {
 
 function parseSvgLength(value: string | null): number | null {
   if (!value) return null;
-  const match = value.trim().match(/^([0-9]*\.?[0-9]+)/);
-  return match ? Number(match[1]) : null;
+  const match = value.trim().match(/^([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))(px)?$/i);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
 }
 
 function rgbToHsl({ r, g, b }: RgbColor): HslColor {
@@ -94,8 +118,10 @@ function hslToRgb({ h, s, l }: HslColor): RgbColor {
   };
 }
 
-function rgbToCss({ r, g, b }: RgbColor): string {
-  return `rgb(${r}, ${g}, ${b})`;
+function rgbToCss({ r, g, b, a = 1 }: RgbColor): string {
+  return a < 1
+    ? `rgba(${r}, ${g}, ${b}, ${a})`
+    : `rgb(${r}, ${g}, ${b})`;
 }
 
 function resolveCssColor(color: string): RgbColor | null {
@@ -104,7 +130,7 @@ function resolveCssColor(color: string): RgbColor | null {
     return cached;
   }
 
-  const probe = document.createElement("span");
+  const probe = getColorProbe();
   probe.style.color = "";
   probe.style.color = color;
   if (!probe.style.color) {
@@ -112,11 +138,9 @@ function resolveCssColor(color: string): RgbColor | null {
     return null;
   }
 
-  document.body.appendChild(probe);
   const resolved = window.getComputedStyle(probe).color;
-  probe.remove();
 
-  const match = resolved.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  const match = resolved.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
   if (!match) {
     resolvedColorCache.set(color, null);
     return null;
@@ -126,6 +150,7 @@ function resolveCssColor(color: string): RgbColor | null {
     r: Number(match[1]),
     g: Number(match[2]),
     b: Number(match[3]),
+    a: match[4] === undefined ? 1 : Number(match[4]),
   };
   resolvedColorCache.set(color, parsed);
   return parsed;
@@ -136,12 +161,12 @@ function mapColorForDarkTheme(rgb: RgbColor): string {
 
   if (hsl.s < 0.12) {
     const nextLightness = clamp(0.18 + (1 - hsl.l) * 0.7, 0.18, 0.9);
-    return rgbToCss(hslToRgb({ h: hsl.h, s: 0.06, l: nextLightness }));
+    return rgbToCss({ ...hslToRgb({ h: hsl.h, s: 0.06, l: nextLightness }), a: rgb.a });
   }
 
   const nextLightness = clamp(0.28 + (1 - hsl.l) * 0.46, 0.28, 0.82);
   const nextSaturation = clamp(hsl.s * 0.88 + 0.12, 0.24, 0.88);
-  return rgbToCss(hslToRgb({ h: hsl.h, s: nextSaturation, l: nextLightness }));
+  return rgbToCss({ ...hslToRgb({ h: hsl.h, s: nextSaturation, l: nextLightness }), a: rgb.a });
 }
 
 function transformColorValue(value: string, isDarkTheme: boolean): string {
@@ -203,6 +228,11 @@ function isLikelyBackgroundRect(element: SVGElement, svg: SVGSVGElement): boolea
   return coversWidth && coversHeight && nearOrigin;
 }
 
+function setSvgBackgroundFill(node: SVGElement) {
+  node.removeAttribute("fill");
+  node.style.fill = "var(--question-svg-dark-background)";
+}
+
 function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
   const width = parseSvgLength(svg.getAttribute("width"));
   const height = parseSvgLength(svg.getAttribute("height"));
@@ -223,7 +253,7 @@ function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
       }
 
       if (isDarkTheme && attribute === "fill" && isLikelyBackgroundRect(node, svg)) {
-        node.setAttribute(attribute, "rgb(16, 18, 24)");
+        setSvgBackgroundFill(node);
         continue;
       }
 
@@ -234,6 +264,34 @@ function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
     if (styleValue) {
       node.setAttribute("style", rewriteStyleColors(styleValue, isDarkTheme));
     }
+  }
+}
+
+function wrapTables(container: HTMLElement) {
+  for (const table of container.querySelectorAll<HTMLTableElement>("table")) {
+    const parent = table.parentElement;
+    if (parent?.classList.contains("question-table-wrapper")) {
+      continue;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "question-table-wrapper";
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
+  }
+}
+
+function wrapTablesInDocument(doc: Document) {
+  for (const table of doc.querySelectorAll<HTMLTableElement>("table")) {
+    const parent = table.parentElement;
+    if (parent?.classList.contains("question-table-wrapper")) {
+      continue;
+    }
+
+    const wrapper = doc.createElement("div");
+    wrapper.className = "question-table-wrapper";
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
   }
 }
 
@@ -344,16 +402,18 @@ export function HtmlContent({ html, className = "" }: HtmlContentProps) {
       }
     });
 
+    wrapTablesInDocument(doc);
+    for (const svg of doc.querySelectorAll<SVGSVGElement>("svg")) {
+      restyleSvg(svg, isDarkTheme);
+    }
+
     const sanitized = DOMPurify.sanitize(doc.body.innerHTML, {
       ADD_TAGS: ["math", "mi", "mo", "mn", "ms", "mrow", "msup", "msub", "mfrac", "mover", "munder", "mtext", "msqrt", "mroot", "mpadded", "mspace", "mfenced", "mtd", "mtr", "mlabeledtr", "svg", "figure", "g", "path", "defs", "clipPath", "use", "rect", "text", "span", "p", "ul", "li", "br", "img", "line", "circle", "ellipse", "polyline", "polygon", "tspan"],
       ADD_ATTR: ["xmlns", "alttext", "accent", "accentunder", "fence", "separator", "stretchy", "lspace", "rspace", "columnalign", "rowalign", "colspan", "rowspan", "open", "close", "sep", "viewBox", "width", "height", "role", "aria-label", "id", "class", "d", "fill", "stroke", "stroke-width", "clip-path", "transform", "x", "y", "xlink:href", "href", "style", "align", "x1", "x2", "y1", "y2", "cx", "cy", "r", "rx", "ry", "points", "opacity", "fill-opacity", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-miterlimit", "stroke-dashoffset", "font-size", "font-family", "font-style", "font-weight", "text-anchor", "dominant-baseline", "preserveAspectRatio", "stop-color", "stop-opacity"],
     });
 
     ref.current.innerHTML = sanitized;
-
-    for (const svg of ref.current.querySelectorAll<SVGSVGElement>("svg")) {
-      restyleSvg(svg, isDarkTheme);
-    }
+    wrapTables(ref.current);
   }, [html, isDarkTheme]);
 
   return (

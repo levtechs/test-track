@@ -852,10 +852,10 @@ export default function PracticePage() {
     const canToggleRecentSessions = recentSessions.length > COLLAPSED_RECENT_SESSIONS;
 
     return (
-      <div className="flex flex-col px-4 pt-8 pb-8 min-h-full">
+      <div className="flex h-full min-h-0 flex-col px-4 pt-8 pb-8">
         <h1 className="mb-6 text-2xl font-bold text-center">Practice</h1>
         
-        <div className="space-y-8 w-full max-w-md mx-auto overflow-y-auto">
+        <div className="mx-auto w-full max-w-md flex-1 min-h-0 space-y-8 overflow-y-auto">
           {(recentSessionsLoading || recentSessions.length > 0) && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
