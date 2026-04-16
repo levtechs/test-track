@@ -362,11 +362,18 @@
   margin-bottom: 0.75rem;
 }
 .question-table-wrapper {
+  display: block;
+  width: 100%;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   margin-bottom: 0.75rem;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+.question-content figure.table {
+  margin: 0 0 0.75rem;
 }
 .question-table-wrapper table {
   border-collapse: collapse;
