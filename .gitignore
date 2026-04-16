@@ -58,5 +58,6 @@ next-env.d.ts
 firebase-service-account*.json
 *.service-account.json
 
-# bug image
+# bug images
+screenshots/
 IMG_5303.png

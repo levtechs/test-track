@@ -53,7 +53,7 @@ export function QuestionCard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="overflow-y-auto pb-2">
+      <div className="min-h-0 overflow-x-hidden overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />
@@ -74,21 +74,14 @@ export function QuestionCard({
           </div>
         )}
         <div className="mt-2 text-sm leading-relaxed">
-          <div 
-            className="bg-white text-black p-3 rounded-lg"
-            style={{ 
-              filter: typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-                ? 'invert(1) hue-rotate(180deg)' 
-                : 'none' 
-            }}
-          >
+          <div className="rounded-lg border bg-card p-3 text-card-foreground">
             <HtmlContent html={question.question_text} />
           </div>
         </div>
       </div>
 
       <div className="flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
-        <div className="overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto">
           <AnswerOptions
             key={question.question_id}
             options={question.answer_options}
