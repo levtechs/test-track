@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -175,9 +176,14 @@ type PracticeState =
       mode: SessionMode;
     };
 
-export default function PracticePage() {
+export function PracticePageClient({ initialSessionId }: { initialSessionId?: string }) {
   const { user, getIdToken, loading: authLoading } = useAuth();
-  const [state, setState] = useState<PracticeState>({ phase: "select" });
+  const router = useRouter();
+  const [state, setState] = useState<PracticeState>(
+    initialSessionId
+      ? { phase: "loading", module: "english", mode: "sandbox" }
+      : { phase: "select" }
+  );
   const [session, setSession] = useState<Session | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionClient | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -329,68 +335,6 @@ export default function PracticePage() {
     }
   }, [fetchQuestion]);
 
-  // Helper to get last session info from Firebase (for authenticated users) or localStorage (for guests)
-  const getLastSessionInfo = useCallback(async (module: Module, isGuest: boolean, userId?: string) => {
-    if (!isGuest && userId) {
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        const sessionId = module === "english" ? userData.lastEnglishSessionId : userData.lastMathSessionId;
-        const index = module === "english" ? userData.lastEnglishIndex : userData.lastMathIndex;
-        console.log("Firebase read - module:", module, "sessionId:", sessionId, "index:", index);
-        return { sessionId, index: index ?? 0 };
-      }
-    }
-    // Fall back to localStorage for guests
-    const sessionId = localStorage.getItem("sat_last_session_id");
-    const indexKey = `sat_last_index_${module}`;
-    const savedIndex = localStorage.getItem(indexKey);
-    return { sessionId, index: savedIndex ? parseInt(savedIndex, 10) : 0 };
-  }, []);
-
-  // Helper to get last module from Firebase (for authenticated users) or localStorage (for guests)
-  const getLastModule = useCallback(async (isGuest: boolean, userId?: string): Promise<Module | null> => {
-    if (!isGuest && userId) {
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        return userData.lastModule || null;
-      }
-    }
-    // Fall back to localStorage for guests
-    return localStorage.getItem("sat_last_module") as Module | null;
-  }, []);
-
-  // Helper to save last session info via API (for authenticated users) or localStorage (for guests)
-  const saveLastSessionInfo = useCallback(async (module: Module, sessionId: string, index: number, isGuest: boolean, userId?: string) => {
-    if (!isGuest && userId) {
-      try {
-        const token = await getIdToken();
-        if (token) {
-          const res = await fetch("/api/sessions/bookmark", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ module, sessionId, index }),
-          });
-          if (!res.ok) {
-            console.error(`Failed to save session bookmark: status ${res.status}`);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to save session info:", err);
-      }
-    } else {
-      localStorage.setItem("sat_last_session_id", sessionId);
-      localStorage.setItem("sat_last_module", module);
-      localStorage.setItem(`sat_last_index_${module}`, index.toString());
-    }
-  }, [getIdToken]);
-
   const loadRecentSessions = useCallback(async () => {
     if (authLoading) return;
 
@@ -464,18 +408,13 @@ export default function PracticePage() {
     }
   }, [loadQuestionAtIndex]);
 
-  const openExistingSession = useCallback(async (
-    sessionId: string,
-    module: Module,
-    mode: SessionMode,
-    savedIndex?: number
-  ) => {
+  const openExistingSession = useCallback(async (sessionId: string, savedIndex?: number) => {
     unsubscribeRef.current?.();
     unsubscribeRef.current = null;
     questionCache.current.clear();
     hasInitializedRef.current = false;
     setSelectionError(null);
-    setState({ phase: "loading", module, mode });
+    setState({ phase: "loading", module: "english", mode: "sandbox" });
     setSession(null);
     setCurrentQuestion(null);
     setSelectedAnswer(null);
@@ -516,37 +455,23 @@ export default function PracticePage() {
     }
   }, [handleSessionUpdate]);
 
-  // Resume session (from Firebase for auth users, localStorage for guests)
   useEffect(() => {
-    // Wait for auth to finish loading before attempting to resume
+    if (!initialSessionId) return;
+
+    const savedIndex = readSessionPositions()[initialSessionId]?.index;
+    void openExistingSession(initialSessionId, savedIndex);
+  }, [initialSessionId, openExistingSession]);
+
+  useEffect(() => {
+    if (initialSessionId) return;
+
     if (authLoading) {
       setState({ phase: "loading", module: "english", mode: "sandbox" });
       return;
     }
 
-    const resumeSession = async () => {
-      // Show loading while we try to resume
-      setState({ phase: "loading", module: "english", mode: "sandbox" });
-
-      const isGuest = !user;
-      const savedModule = await getLastModule(isGuest, user?.uid);
-      if (!savedModule) {
-        setState({ phase: "select" });
-        return;
-      }
-
-      const { sessionId: savedSessionId, index: savedIndex } = await getLastSessionInfo(savedModule, isGuest, user?.uid);
-      
-      if (!savedSessionId) {
-        setState({ phase: "select" });
-        return;
-      }
-
-      await openExistingSession(savedSessionId, savedModule, "sandbox", savedIndex);
-    };
-
-    resumeSession();
-  }, [user, authLoading, getLastModule, getLastSessionInfo, openExistingSession]);
+    setState({ phase: "select" });
+  }, [initialSessionId, authLoading]);
 
   useEffect(() => {
     if (state.phase !== "select") return;
@@ -567,7 +492,6 @@ export default function PracticePage() {
     setCurrentIndex(0);
     setSpeedRoundComplete(false);
     setTimeRemaining(timeLimitMs ?? null);
-    localStorage.removeItem(`sat_last_index_${module}`);
 
     try {
       const idToken = user ? await getIdToken() : undefined;
@@ -589,41 +513,17 @@ export default function PracticePage() {
 
       const data = await res.json();
       const { sessionId, bufferedQuestions } = data;
-
-      // Find first unanswered question to start at
       const firstUnansweredIdx = bufferedQuestions.findIndex((q: QueuedQuestion) => q.answeredAt === undefined);
       const startIdx = firstUnansweredIdx === -1 ? 0 : firstUnansweredIdx;
 
-      // Save to Firebase (auth users) or localStorage (guests), but not for speed_round
-      if (mode === "sandbox") {
-        const isGuest = !user;
-        await saveLastSessionInfo(module, sessionId, startIdx, isGuest, user?.uid);
-      }
       saveSessionPosition(sessionId, module, startIdx, mode);
-
-      setState({ phase: "active", sessionId, module, mode });
-      setCurrentIndex(startIdx);
-
-      // Load first unanswered question
-      if (bufferedQuestions.length > 0) {
-        await loadQuestionAtIndex(startIdx, bufferedQuestions);
-      }
-
-      // Set up Firebase listener
-      const sessionRef = doc(db, "sessions", sessionId);
-      const unsub = onSnapshot(sessionRef, (snap) => {
-        if (!snap.exists()) return;
-        const sessionData = snap.data() as Session;
-        handleSessionUpdate(sessionData, false);
-      });
-
-      unsubscribeRef.current = unsub;
+      router.push(`/practice/${encodeURIComponent(sessionId)}`);
     } catch (err) {
       console.error("Error starting session:", err);
       setSelectionError(err instanceof Error ? err.message : "Failed to start session");
       setState({ phase: "select" });
     }
-  }, [user, getIdToken, getGuestId, handleSessionUpdate, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
+  }, [user, getIdToken, getGuestId, router, saveSessionPosition]);
 
   // Submit answer
   const submitAnswer = useCallback(async (optionId: string) => {
@@ -713,13 +613,10 @@ export default function PracticePage() {
         const nextIdx = currentIndex + 1;
         setCurrentIndex(nextIdx);
         saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
-        if (session.mode === "sandbox") {
-          saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
-        }
         loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
       }, 500);
     }
-  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveLastSessionInfo, saveSessionPosition]);
+  }, [selectedAnswer, currentQuestion, session, currentIndex, questionStartTime, user, getIdToken, getGuestId, answerResult, loadQuestionAtIndex, saveSessionPosition]);
 
   // Go to next unanswered
   const goToNextUnanswered = useCallback(() => {
@@ -740,13 +637,10 @@ export default function PracticePage() {
       setCurrentIndex(newIdx);
       if (session) {
         saveSessionPosition(session.sessionId, session.module, newIdx, session.mode);
-        if (session.mode === "sandbox") {
-          saveLastSessionInfo(session.module, session.sessionId, newIdx, !user, user?.uid);
-        }
         loadQuestionAtIndex(newIdx, session.bufferedQuestions);
       }
     }
-  }, [currentIndex, session, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
+  }, [currentIndex, session, loadQuestionAtIndex, saveSessionPosition]);
 
   // Go forward - can only go to first unanswered
   const goForward = useCallback(() => {
@@ -759,12 +653,9 @@ export default function PracticePage() {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
       saveSessionPosition(session.sessionId, session.module, nextIdx, session.mode);
-      if (session.mode === "sandbox") {
-        saveLastSessionInfo(session.module, session.sessionId, nextIdx, !user, user?.uid);
-      }
       loadQuestionAtIndex(nextIdx, session.bufferedQuestions);
     }
-  }, [session, currentIndex, loadQuestionAtIndex, saveLastSessionInfo, user, saveSessionPosition]);
+  }, [session, currentIndex, loadQuestionAtIndex, saveSessionPosition]);
 
   // Cleanup
   useEffect(() => {
@@ -786,10 +677,8 @@ export default function PracticePage() {
     setCurrentIndex(0);
     questionCache.current.clear();
     hasInitializedRef.current = false;
-    localStorage.removeItem("sat_last_session_id");
-    localStorage.removeItem("sat_last_module");
-    localStorage.removeItem("sat_last_index");
-  }, []);
+    router.push("/practice");
+  }, [router]);
 
   // Navigation helpers
   const canGoBack = currentIndex > 0;
@@ -886,12 +775,7 @@ export default function PracticePage() {
                         key={recentSession.sessionId}
                         type="button"
                         className="flex w-full items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left transition-all hover:border-primary/50 hover:bg-accent/40"
-                        onClick={() => openExistingSession(
-                          recentSession.sessionId,
-                          recentSession.module,
-                          recentSession.mode,
-                          recentSession.savedIndex
-                        )}
+                        onClick={() => router.push(`/practice/${encodeURIComponent(recentSession.sessionId)}`)}
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm leading-tight">
@@ -1383,4 +1267,8 @@ export default function PracticePage() {
       )}
     </div>
   );
+}
+
+export default function PracticePage() {
+  return <PracticePageClient />;
 }
