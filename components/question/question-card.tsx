@@ -53,7 +53,7 @@ export function QuestionCard({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 overflow-y-auto pb-2">
+      <div className="min-h-0 overflow-x-hidden overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />

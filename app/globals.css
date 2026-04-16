@@ -361,26 +361,27 @@
   padding-left: 1.5rem;
   margin-bottom: 0.75rem;
 }
+.question-content figure.table,
 .question-table-wrapper {
   display: block;
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  margin-bottom: 0.75rem;
+  margin: 0 0 0.75rem;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
   touch-action: pan-x;
 }
-.question-content figure.table {
-  margin: 0 0 0.75rem;
-}
+.question-content figure.table table,
 .question-table-wrapper table {
   border-collapse: collapse;
   margin-bottom: 0;
   min-width: 100%;
   width: max-content;
 }
+.question-content figure.table th,
+.question-content figure.table td,
 .question-table-wrapper th,
 .question-table-wrapper td {
   border: 1px solid var(--border);
@@ -388,6 +389,7 @@
   text-align: left;
   white-space: nowrap;
 }
+.question-content figure.table th,
 .question-table-wrapper th {
   font-weight: 600;
   background: var(--muted);
