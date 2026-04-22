@@ -24,7 +24,7 @@ interface HslColor {
 
 const SVG_COLOR_ATTRIBUTES = ["fill", "stroke", "stop-color", "color"] as const;
 const SVG_STYLE_PROPERTIES = new Set(["fill", "stroke", "stop-color", "color"]);
-const SVG_NON_SCALING_VALUES = new Set(["none", "transparent", "currentcolor", "inherit", "unset"]);
+const SVG_NON_SCALING_VALUES = new Set(["none", "transparent"]);
 const resolvedColorCache = new Map<string, RgbColor | null>();
 let colorProbe: HTMLSpanElement | null = null;
 
@@ -44,10 +44,6 @@ function getColorProbe(): HTMLSpanElement {
   colorProbe.style.inset = "0";
   document.body.appendChild(colorProbe);
   return colorProbe;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function parseSvgLength(value: string | null): number | null {
@@ -91,39 +87,6 @@ function rgbToHsl({ r, g, b }: RgbColor): HslColor {
   return { h: h * 60 < 0 ? h * 60 + 360 : h * 60, s, l };
 }
 
-function hueToRgb(p: number, q: number, t: number): number {
-  let next = t;
-  if (next < 0) next += 1;
-  if (next > 1) next -= 1;
-  if (next < 1 / 6) return p + (q - p) * 6 * next;
-  if (next < 1 / 2) return q;
-  if (next < 2 / 3) return p + (q - p) * (2 / 3 - next) * 6;
-  return p;
-}
-
-function hslToRgb({ h, s, l }: HslColor): RgbColor {
-  if (s === 0) {
-    const gray = Math.round(l * 255);
-    return { r: gray, g: gray, b: gray };
-  }
-
-  const hue = h / 360;
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-
-  return {
-    r: Math.round(hueToRgb(p, q, hue + 1 / 3) * 255),
-    g: Math.round(hueToRgb(p, q, hue) * 255),
-    b: Math.round(hueToRgb(p, q, hue - 1 / 3) * 255),
-  };
-}
-
-function rgbToCss({ r, g, b, a = 1 }: RgbColor): string {
-  return a < 1
-    ? `rgba(${r}, ${g}, ${b}, ${a})`
-    : `rgb(${r}, ${g}, ${b})`;
-}
-
 function resolveCssColor(color: string): RgbColor | null {
   const cached = resolvedColorCache.get(color);
   if (cached !== undefined) {
@@ -160,13 +123,38 @@ function mapColorForDarkTheme(rgb: RgbColor): string {
   const hsl = rgbToHsl(rgb);
 
   if (hsl.s < 0.12) {
-    const nextLightness = clamp(0.18 + (1 - hsl.l) * 0.7, 0.18, 0.9);
-    return rgbToCss({ ...hslToRgb({ h: hsl.h, s: 0.06, l: nextLightness }), a: rgb.a });
+    if (hsl.l < 0.16) {
+      return rgb.a !== undefined && rgb.a < 1
+        ? `color-mix(in srgb, var(--question-svg-tone-strong) ${rgb.a * 100}%, transparent)`
+        : "var(--question-svg-tone-strong)";
+    }
+
+    if (hsl.l < 0.45) {
+      return rgb.a !== undefined && rgb.a < 1
+        ? `color-mix(in srgb, var(--question-svg-tone-mid) ${rgb.a * 100}%, transparent)`
+        : "var(--question-svg-tone-mid)";
+    }
+
+    return rgb.a !== undefined && rgb.a < 1
+      ? `color-mix(in srgb, var(--question-svg-tone-soft) ${rgb.a * 100}%, transparent)`
+      : "var(--question-svg-tone-soft)";
   }
 
-  const nextLightness = clamp(0.28 + (1 - hsl.l) * 0.46, 0.28, 0.82);
-  const nextSaturation = clamp(hsl.s * 0.88 + 0.12, 0.24, 0.88);
-  return rgbToCss({ ...hslToRgb({ h: hsl.h, s: nextSaturation, l: nextLightness }), a: rgb.a });
+  if (hsl.l < 0.2) {
+    return rgb.a !== undefined && rgb.a < 1
+      ? `color-mix(in srgb, var(--question-svg-tone-strong) ${rgb.a * 100}%, transparent)`
+      : "var(--question-svg-tone-strong)";
+  }
+
+  if (hsl.l < 0.55) {
+    return rgb.a !== undefined && rgb.a < 1
+      ? `color-mix(in srgb, var(--question-svg-tone-mid) ${rgb.a * 100}%, transparent)`
+      : "var(--question-svg-tone-mid)";
+  }
+
+  return rgb.a !== undefined && rgb.a < 1
+    ? `color-mix(in srgb, var(--question-svg-tone-soft) ${rgb.a * 100}%, transparent)`
+    : "var(--question-svg-tone-soft)";
 }
 
 function transformColorValue(value: string, isDarkTheme: boolean): string {
@@ -178,6 +166,10 @@ function transformColorValue(value: string, isDarkTheme: boolean): string {
 
   if (!isDarkTheme) {
     return value;
+  }
+
+  if (normalized === "currentcolor" || normalized === "inherit" || normalized === "unset") {
+    return "var(--question-svg-foreground)";
   }
 
   const resolved = resolveCssColor(trimmed);
@@ -233,6 +225,34 @@ function setSvgBackgroundFill(node: SVGElement) {
   node.style.fill = "var(--question-svg-dark-background)";
 }
 
+function restyleMatplotlibSvg(svg: SVGSVGElement) {
+  for (const label of svg.querySelectorAll<SVGElement>('g[id^="text_"] use')) {
+    label.setAttribute("fill", "var(--question-svg-foreground)");
+    label.setAttribute("stroke", "none");
+    label.style.fill = "var(--question-svg-foreground)";
+    label.style.stroke = "none";
+  }
+
+  for (const labelGroup of svg.querySelectorAll<SVGGElement>('g[id^="text_"]')) {
+    labelGroup.setAttribute("fill", "var(--question-svg-foreground)");
+    labelGroup.style.fill = "var(--question-svg-foreground)";
+    labelGroup.style.color = "var(--question-svg-foreground)";
+  }
+}
+
+function restyleBarePathGlyphs(svg: SVGSVGElement) {
+  for (const path of svg.querySelectorAll<SVGPathElement>('g[data-name] path')) {
+    if (path.hasAttribute("fill") || path.hasAttribute("stroke") || path.hasAttribute("style") || path.hasAttribute("class") || path.hasAttribute("transform")) {
+      continue;
+    }
+
+    path.setAttribute("fill", "var(--question-svg-foreground)");
+    path.setAttribute("stroke", "none");
+    path.style.fill = "var(--question-svg-foreground)";
+    path.style.stroke = "none";
+  }
+}
+
 function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
   const width = parseSvgLength(svg.getAttribute("width"));
   const height = parseSvgLength(svg.getAttribute("height"));
@@ -243,9 +263,18 @@ function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
   svg.style.display = "block";
   svg.style.maxWidth = "100%";
   svg.style.height = "auto";
+  if (isDarkTheme) {
+    svg.classList.add("question-svg-invert");
+    svg.style.filter = "invert(1) hue-rotate(180deg)";
+    return;
+  }
+
+  svg.classList.remove("question-svg-invert");
+  svg.style.filter = "";
 
   const nodes = [svg, ...Array.from(svg.querySelectorAll<SVGElement>("*"))];
   for (const node of nodes) {
+    const tagName = node.tagName.toLowerCase();
     for (const attribute of SVG_COLOR_ATTRIBUTES) {
       const currentValue = node.getAttribute(attribute);
       if (!currentValue) {
@@ -260,9 +289,22 @@ function restyleSvg(svg: SVGSVGElement, isDarkTheme: boolean) {
       node.setAttribute(attribute, transformColorValue(currentValue, isDarkTheme));
     }
 
+    if (isDarkTheme && (tagName === "text" || tagName === "tspan")) {
+      node.setAttribute("fill", "var(--question-svg-foreground)");
+      node.setAttribute("stroke", "none");
+      node.style.fill = "var(--question-svg-foreground)";
+      node.style.stroke = "none";
+      node.style.paintOrder = "normal";
+    }
+
     const styleValue = node.getAttribute("style");
     if (styleValue) {
       node.setAttribute("style", rewriteStyleColors(styleValue, isDarkTheme));
+    }
+
+    if (isDarkTheme && (tagName === "text" || tagName === "tspan")) {
+      node.style.fill = "var(--question-svg-foreground)";
+      node.style.stroke = "none";
     }
   }
 }
