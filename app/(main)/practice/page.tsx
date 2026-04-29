@@ -1106,7 +1106,7 @@ export function PracticePageClient({ initialSessionId }: { initialSessionId?: st
   const currentQueuedQuestion = session?.bufferedQuestions[currentIndex];
 
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-3xl flex-col px-2 pb-3 sm:px-4">
+    <div className="practice-session mx-auto flex h-full min-h-0 max-w-3xl flex-col px-2 pb-3 sm:px-4">
       {session && (
         <div className="flex-none flex items-center justify-between gap-2 py-2 text-sm">
           <Button
@@ -1254,6 +1254,10 @@ export function PracticePageClient({ initialSessionId }: { initialSessionId?: st
             disabled={!!answerResult}
             onSelectAnswer={submitAnswer}
             loading={false}
+            showRationale={showRationale}
+            rationale={currentQuestion?.rationale}
+            onNext={goToNextUnanswered}
+            ratingChange={answerResult?.ratingChange}
           />
         )}
       </div>
@@ -1263,6 +1267,7 @@ export function PracticePageClient({ initialSessionId }: { initialSessionId?: st
           rationale={currentQuestion.rationale}
           onNext={goToNextUnanswered}
           ratingChange={answerResult?.ratingChange}
+          className="question-card__portrait-rationale"
         />
       )}
     </div>

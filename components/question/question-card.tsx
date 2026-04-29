@@ -3,6 +3,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { HtmlContent } from "./html-content";
 import { AnswerOptions } from "./answer-options";
+import { RationaleView } from "./rationale-view";
 import { Button } from "@/components/ui/button";
 import { cleanHtml } from "@/lib/utils";
 import {
@@ -21,6 +22,10 @@ interface QuestionCardProps {
   disabled: boolean;
   onSelectAnswer: (optionId: string) => void;
   loading?: boolean;
+  showRationale?: boolean;
+  rationale?: string;
+  onNext?: () => void;
+  ratingChange?: number;
 }
 
 export function QuestionCard({
@@ -31,6 +36,10 @@ export function QuestionCard({
   disabled,
   onSelectAnswer,
   loading = false,
+  showRationale = false,
+  rationale,
+  onNext,
+  ratingChange,
 }: QuestionCardProps) {
   if (loading || !question) {
     return (
@@ -52,8 +61,8 @@ export function QuestionCard({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="min-h-0 overflow-x-hidden overflow-y-auto pb-2">
+    <div className="question-card flex h-full flex-col">
+      <div className="question-card__prompt min-h-0 overflow-x-hidden overflow-y-auto pb-2">
         {question.stimulus && (
           <div className="rounded-lg bg-muted/50 p-3 border text-sm leading-relaxed">
             <HtmlContent html={cleanHtml(question.stimulus)} />
@@ -80,8 +89,8 @@ export function QuestionCard({
         </div>
       </div>
 
-      <div className="flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
-        <div className="min-h-0 overflow-y-auto">
+      <div className="question-card__response flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
+        <div className="question-card__answers min-h-0 overflow-y-auto">
           <AnswerOptions
             key={question.question_id}
             options={question.answer_options}
@@ -93,6 +102,14 @@ export function QuestionCard({
             questionType={question.question_type}
           />
         </div>
+        {showRationale && rationale && onNext && (
+          <RationaleView
+            rationale={rationale}
+            onNext={onNext}
+            ratingChange={ratingChange}
+            className="question-card__landscape-rationale hidden"
+          />
+        )}
       </div>
     </div>
   );

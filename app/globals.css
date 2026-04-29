@@ -443,3 +443,55 @@
   font-size: 0.75em;
   vertical-align: sub;
 }
+
+@media (orientation: landscape) {
+  .practice-session {
+    width: min(100%, 92rem) !important;
+    max-width: calc(100vw - 3rem) !important;
+  }
+
+  .question-card {
+    flex-direction: row;
+    gap: 1.5rem;
+  }
+
+  .question-card__prompt {
+    flex: 1 1 50%;
+    padding-right: 1.5rem;
+    padding-bottom: 0;
+    border-right: 1px solid var(--border);
+  }
+
+  .question-card__response {
+    flex: 1 1 50%;
+    min-height: 0;
+    padding-top: 0;
+    border-top: 0;
+    justify-content: flex-start;
+  }
+
+  .question-card__answers {
+    flex: 0 0 auto;
+    max-height: none;
+  }
+
+  .question-card__landscape-rationale {
+    display: block;
+    flex: 0 1 auto;
+    align-self: stretch;
+    min-height: 0;
+    max-height: min(40rem, 55vh);
+    overflow-y: auto;
+  }
+
+  .question-card__landscape-rationale[data-collapsed="true"] {
+    flex: 0 0 auto;
+    height: fit-content;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .question-card__portrait-rationale {
+    display: none;
+  }
+}

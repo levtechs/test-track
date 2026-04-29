@@ -3,22 +3,28 @@
 import { useState } from "react";
 import { HtmlContent } from "./html-content";
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface RationaleViewProps {
   rationale: string;
   onNext: () => void;
   ratingChange?: number;
+  className?: string;
 }
 
 export function RationaleView({
   rationale,
   onNext,
   ratingChange,
+  className,
 }: RationaleViewProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="mt-4 rounded-lg border-2 border-destructive/30 bg-destructive/5 p-4">
+    <div
+      data-collapsed={collapsed}
+      className={cn("mt-4 rounded-lg border-2 border-destructive/30 bg-destructive/5 p-4", className)}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-lg font-semibold text-destructive">Incorrect</span>
