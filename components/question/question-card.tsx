@@ -82,7 +82,7 @@ export function QuestionCard({
               ))}
           </div>
         )}
-        <div className="mt-2 text-sm leading-relaxed">
+        <div className="question-card__question-prompt mt-2 text-sm leading-relaxed">
           <div className="rounded-lg border bg-card p-3 text-card-foreground">
             <HtmlContent html={question.question_text} />
           </div>
@@ -90,6 +90,11 @@ export function QuestionCard({
       </div>
 
       <div className="question-card__response flex-1 min-h-[25%] border-t pt-2 flex flex-col justify-end">
+        <div className="question-card__question-response mb-2 text-sm leading-relaxed">
+          <div className="rounded-lg border bg-card p-3 text-card-foreground">
+            <HtmlContent html={question.question_text} />
+          </div>
+        </div>
         <div className="question-card__answers min-h-0 overflow-y-auto">
           <AnswerOptions
             key={question.question_id}

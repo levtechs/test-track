@@ -23,6 +23,7 @@ export interface Question {
   create_date: number | null;
   update_date: number | null;
   images: string[];
+  exclude?: boolean;
   // Elo fields (added by migration)
   elo: number;
   eloAnswerCount: number;
@@ -50,6 +51,7 @@ export interface QuestionClient {
   question_type: QuestionType;
   elo: number;
   images: string[];
+  exclude?: boolean;
 }
 
 export type Module = "english" | "math";

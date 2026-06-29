@@ -444,6 +444,10 @@
   vertical-align: sub;
 }
 
+.question-card__question-response {
+  display: none;
+}
+
 @media (orientation: landscape) {
   .practice-session {
     width: min(100%, 92rem) !important;
@@ -460,6 +464,15 @@
     padding-right: 1.5rem;
     padding-bottom: 0;
     border-right: 1px solid var(--border);
+  }
+
+  .question-card__question-prompt {
+    display: none !important;
+  }
+
+  .question-card__question-response {
+    display: block !important;
+    flex: 0 0 auto;
   }
 
   .question-card__response {

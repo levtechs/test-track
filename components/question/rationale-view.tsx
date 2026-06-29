@@ -60,8 +60,8 @@ export function RationaleView({
       </div>
 
       <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          collapsed ? "max-h-0" : "max-h-[600px]"
+        className={`transition-all duration-300 ease-in-out ${
+          collapsed ? "max-h-0 overflow-hidden" : "max-h-none overflow-visible"
         }`}
       >
         <div className="mt-3 border-t pt-2">

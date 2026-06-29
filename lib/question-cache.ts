@@ -39,15 +39,18 @@ export async function getQuestionsByModule(
       "correct_answer",
       "rationale",
       "question_type",
+      "exclude",
       "elo",
       "eloAnswerCount",
       "images"
     )
     .get();
 
-  const questions: Question[] = snapshot.docs.map((doc) => {
+  const questions: Question[] = snapshot.docs.flatMap((doc) => {
     const data = doc.data();
-    return {
+    if (data.exclude === true) return [];
+
+    return [{
       question_id: data.question_id || doc.id,
       module: data.module,
       difficulty: data.difficulty,
@@ -63,6 +66,7 @@ export async function getQuestionsByModule(
       create_date: data.create_date || null,
       update_date: data.update_date || null,
       images: data.images || [],
+      exclude: data.exclude === true,
       elo: data.elo || 1100,
       eloAnswerCount: data.eloAnswerCount || 0,
       // Omit embeddings for performance
@@ -70,7 +74,7 @@ export async function getQuestionsByModule(
       embedding_text: "",
       embedding_model: "",
       embedding_dimension: 0,
-    } as Question;
+    } as Question];
   });
 
   cache.set(module, { questions, fetchedAt: Date.now() });
@@ -107,6 +111,7 @@ export async function getQuestionById(
   return {
     ...data,
     question_id: data.question_id || snapshot.docs[0].id,
+    exclude: data.exclude === true,
     elo: data.elo || 1100,
     eloAnswerCount: data.eloAnswerCount || 0,
   } as Question;
