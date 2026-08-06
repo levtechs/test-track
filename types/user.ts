@@ -104,4 +104,7 @@ export interface Response {
   isCorrect: boolean;
   timeSpentMs: number;
   answeredAt: number;
+  /** Hydrated on write; older rows may omit and rely on lookup. */
+  skill?: string;
+  module?: "english" | "math";
 }

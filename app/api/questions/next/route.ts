@@ -243,6 +243,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save response record
+    const qSnap = questionSnap.docs[0]?.data();
     const response: Response = {
       userId: userId || "guest",
       sessionId,
@@ -251,6 +252,8 @@ export async function POST(request: NextRequest) {
       isCorrect: result.isCorrect,
       timeSpentMs: timeSpentMs || 0,
       answeredAt: Date.now(),
+      ...(qSnap?.skill && { skill: qSnap.skill as string }),
+      ...(qSnap?.module && { module: qSnap.module as "english" | "math" }),
     };
 
     await adminDb.collection("responses").add(response);

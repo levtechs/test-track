@@ -13,7 +13,6 @@ export const SKILL_HIERARCHY: SkillHierarchy[] = [
       "Inferences",
       "Command of Evidence",
       "Central Ideas and Details",
-      "Quantitative Reasoning",
     ],
   },
   {
@@ -23,8 +22,6 @@ export const SKILL_HIERARCHY: SkillHierarchy[] = [
       "Cross-Text Connections",
       "Words in Context",
       "Text Structure and Purpose",
-      "Rhetorical Synthesis",
-      "Vocabulary",
     ],
   },
   {
@@ -32,9 +29,7 @@ export const SKILL_HIERARCHY: SkillHierarchy[] = [
     module: "english",
     skills: [
       "Transitions",
-      "Boundaries",
-      "Development",
-      "Organization",
+      "Rhetorical Synthesis",
     ],
   },
   {
@@ -42,9 +37,7 @@ export const SKILL_HIERARCHY: SkillHierarchy[] = [
     module: "english",
     skills: [
       "Form, Structure, and Sense",
-      "Punctuation",
-      "Usage",
-      "Agreement",
+      "Boundaries",
     ],
   },
   // Math

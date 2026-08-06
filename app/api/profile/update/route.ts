@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { adminDb, adminAuth } from "@/lib/firebase-admin";
-import { estimateSectionScore } from "@/lib/algorithm/estimate-score";
-import type { UserProfile } from "@/types";
+import { estimateSectionScore, type ScoreResponseEvent } from "@/lib/algorithm/estimate-score";
+import { loadQuestionSkillMeta } from "@/lib/server/load-question-skills";
+import type { UserProfile, Response } from "@/types";
 
 function getDateString(timestamp: number): string {
   const date = new Date(timestamp);
@@ -76,12 +77,46 @@ export async function POST(request: NextRequest) {
       Promise.resolve(userProfile.skillElos || {}),
     ]);
 
-    const responses = responsesSnap.docs.map(d => d.data() as { answeredAt: number; isCorrect: boolean });
+    const responseRows = responsesSnap.docs.map((d) => d.data() as Response);
+    const responses = responseRows.map((r) => ({
+      answeredAt: r.answeredAt,
+      isCorrect: r.isCorrect,
+    }));
 
     const { streak, lastDate } = calculateDayStreak(responses, userProfile.lastActiveDate || null, clientDate);
 
-    const estimatedEnglish = estimateSectionScore(skillElos, "english", userProfile.englishRating);
-    const estimatedMath = estimateSectionScore(skillElos, "math", userProfile.mathRating);
+    const needSkillLookup = responseRows
+      .filter((r) => !r.skill || !r.module)
+      .map((r) => r.questionId);
+
+    const questionMeta =
+      needSkillLookup.length > 0 ? await loadQuestionSkillMeta(adminDb, needSkillLookup) : new Map<string, { skill: string; module: "english" | "math" }>();
+
+    const scoreResponses: ScoreResponseEvent[] = [];
+    for (const r of responseRows) {
+      const skill = r.skill ?? questionMeta.get(r.questionId)?.skill;
+      const mod = r.module ?? questionMeta.get(r.questionId)?.module;
+      if (!skill || !mod) continue;
+      scoreResponses.push({
+        skill,
+        module: mod,
+        isCorrect: r.isCorrect,
+        answeredAt: r.answeredAt,
+      });
+    }
+
+    const estimatedEnglish = estimateSectionScore({
+      skillElos,
+      module: "english",
+      moduleRating: userProfile.englishRating,
+      responses: scoreResponses,
+    });
+    const estimatedMath = estimateSectionScore({
+      skillElos,
+      module: "math",
+      moduleRating: userProfile.mathRating,
+      responses: scoreResponses,
+    });
     const totalScore = estimatedEnglish.score + estimatedMath.score;
 
     await adminDb.collection("users").doc(userId).update({

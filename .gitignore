@@ -61,3 +61,7 @@ firebase-service-account*.json
 # bug images
 screenshots/
 IMG_5303.png
+
+# Local question-import sources, generated artifacts, and tooling
+/qbexports/
+/tools/question-import/

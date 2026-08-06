@@ -121,7 +121,7 @@ export const INTERVAL_MULTIPLIER = 2.0;
  * - Questions not yet due get low priority
  * @see ALGORITHM.md#Due-Score
  */
-export const W_DUE = 0.25;
+export const W_DUE = 0.15;
 
 /**
  * How much skill-targeting matters.
@@ -154,7 +154,7 @@ export const W_FRESHNESS = 0.20;
  * - Penalizes wrong answers (need more practice)
  * @see ALGORITHM.md#Explore-Score
  */
-export const W_EXPLORE = 0.15;
+export const W_EXPLORE = 0.25;
 
 // =============================================================================
 // FLOW STATE MODULATION
@@ -209,25 +209,25 @@ export const STRUGGLING_ACCURACY_THRESHOLD = 0.50;
  * Score when question is new (never seen / no repetition data).
  * Gets moderate priority since we want to learn about new questions.
  */
-export const DUE_SCORE_NEW = 0.3;
+export const DUE_SCORE_NEW = 0.4;
 
 /**
  * Score when question is overdue (nextReviewAt <= now).
  * Highest priority - must review.
  */
-export const DUE_SCORE_OVERDUE = 1.0;
+export const DUE_SCORE_OVERDUE = 0.75;
 
 /**
  * Score when question is due today.
  * High but not critical priority.
  */
-export const DUE_SCORE_DUE_TODAY = 0.7;
+export const DUE_SCORE_DUE_TODAY = 0.5;
 
 /**
  * Score when question is not yet due.
  * Low priority - skip unless needed.
  */
-export const DUE_SCORE_NOT_DUE = 0.2;
+export const DUE_SCORE_NOT_DUE = 0.1;
 
 /**
  * Score when question has never been seen (for explore score).
